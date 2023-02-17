@@ -101,7 +101,7 @@ class Execution:
         serialized = json.dumps(metadata)
         self.metadata_db.execute(
             """
-        INSERT OR UPDATE INTO file_metadata (path, metadata) VALUES (?, ?)
+        INSERT OR REPLACE INTO file_metadata (path, metadata) VALUES (?, ?)
         """,
             (str(path), serialized),
         )
@@ -201,10 +201,13 @@ class Execution:
                 new_metadata = entry.get_metadata()
             else:
                 new_metadata = None
-            if old_metadata != new_metadata or new_metadata is None:
+            if new_metadata is None or entry.metadata_differs(old_metadata, new_metadata):
                 out_of_date_entries.add(entry)
 
-        # Evaluate entries
+        if not out_of_date_entries:
+            logger.info("All files up to date")
+
+        # Build entries that depend on out of date entries
         built_entries: Set["Entry"] = set()
         for entry in ordered_entries:
             if (
@@ -221,6 +224,10 @@ class Execution:
                 out_of_date_entries.add(entry)
                 self._call_builder(entry.builder)
                 built_entries.update(entry.builder.builds)
+                # Save metadata for this entry
+                for built_entry in entry.builder.builds:
+                    self._set_metadata(built_entry.path, built_entry.get_metadata())
+
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
@@ -533,9 +540,12 @@ class Entry(ABC):
     def get_metadata(self) -> Dict[str, Any]:
         ...
 
+    @staticmethod
     @abstractmethod
-    def remove(self) -> None:
-        ...
+    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool: ...
+
+    @abstractmethod
+    def remove(self) -> None: ...
 
 
 class File(Entry):
@@ -545,6 +555,13 @@ class File(Entry):
             "mtime": stat_result.st_mtime,
             "is_file": stat.S_ISREG(stat_result.st_mode),
         }
+
+    @staticmethod
+    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
+        if not old.get("is_file") or not new.get("is_file"):
+            return True
+        old_mtime = old.get("mtime")
+        return not old_mtime or old_mtime < new["mtime"]
 
     def remove(self) -> None:
         self.path.unlink(missing_ok=True)
@@ -566,6 +583,19 @@ class Dir(Entry):
             file_metadata = file.get_metadata()
             metadata["files"][str(file.path)] = file_metadata
         return metadata
+
+    @staticmethod
+    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
+        if not old.get("is_dir") or not new.get("is_dir"):
+            return True
+        old_files: Dict[str, Dict] = old.get("files", {})
+        new_files: Dict[str, Dict] = new["files"]
+        if old_files.keys() != new_files.keys():
+            return True
+        for filepath, filemetadata in old_files.items():
+            if File.metadata_differs(filemetadata, new_files[filepath]):
+                return True
+        return False
 
     def remove(self) -> None:
         if self.path.is_dir():
