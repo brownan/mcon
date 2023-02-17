@@ -9,28 +9,61 @@ from collections import defaultdict
 from logging import getLogger
 from pathlib import Path
 from typing import (
+    Any,
+    Collection,
+    Dict,
+    Generic,
     Iterable,
     Iterator,
     List,
-    NewType,
+    Mapping,
     Optional,
+    Protocol,
+    Set,
     Tuple,
+    Type,
     TypeVar,
     Union,
-    Dict,
-    Type,
-    Set,
-    Protocol,
-    Mapping,
-    Collection,
-    Any,
 )
 
 ArgTypes = Union[Path, "Entry", "Builder", str]
 Args = Union[ArgTypes, Iterable[ArgTypes]]
 E = TypeVar("E", bound="Entry")
+FileSources = Union[
+    "File",
+    str,
+    Path,
+    "Builder[File]",
+]
+FilesSources = Union[
+    "File",
+    "FileSet",
+    "Dir",
+    "Builder[File]",
+    "Builder[FileSet]",
+    "Builder[Dir]",
+    str,
+    Iterable[str],
+]
+DirSources = Union[
+    "Dir",
+    "Builder[Dir]",
+]
+FileSet = Iterable["File"]
+BuilderType = TypeVar(
+    "BuilderType",
+    bound=Union[
+        "File",
+        "Dir",
+        FileSet,
+    ],
+)
+
+
+
 
 logger = getLogger("minicons")
+
 
 class Dependable(Protocol):
     """An object that has dependencies"""
@@ -75,7 +108,7 @@ class Execution:
             return {}
         return json.loads(row[0])
 
-    def _set_metadata(self, path: Path, metadata: Dict[str, Any]):
+    def _set_metadata(self, path: Path, metadata: Dict[str, Any]) -> None:
         serialized = json.dumps(metadata)
         self.metadata_db.execute(
             """
@@ -94,9 +127,12 @@ class Execution:
         except KeyError:
             pass
         # Register this builder and its targets
-        entries = list(builder.get_targets())
-        if isinstance(entries, Entry):
-            entries = [entries]
+        builder_targets = builder.get_targets()
+        entries: List["Entry"]
+        if isinstance(builder_targets, Entry):
+            entries = []
+        else:
+            entries = list(builder_targets)
 
         if any(isinstance(e, Dir) for e in entries) and len(entries) != 1:
             raise ValueError(
@@ -123,7 +159,7 @@ class Execution:
         be a path relative to the current working directory.
 
         """
-        list_of_args: List[ArgTypes]
+        list_of_args: List[Args]
         if isinstance(args, (Path, Entry, Builder, str)):
             list_of_args = [args]
         else:
@@ -142,15 +178,16 @@ class Execution:
             elif isinstance(arg, Path):
                 yield arg
             elif isinstance(arg, Iterable):
+                # Flatten the list
                 yield from self._args_to_paths(arg)
             else:
                 raise TypeError(f"Unknown argument type {arg}")
 
-    def register_alias(self, alias: str, entries: Args):
+    def register_alias(self, alias: str, entries: Args) -> None:
         paths = list(self._args_to_paths(entries))
         self.aliases[alias] = paths
 
-    def build_targets(self, targets: Args):
+    def build_targets(self, targets: Args) -> None:
         # Resolve all targets to paths
         target_paths: List[Path] = list(self._args_to_paths(targets))
 
@@ -190,16 +227,17 @@ class Execution:
                 # One of this entry's dependencies is marked as out of date, so it must be
                 # built.
                 if not entry.builder:
-                    raise DependencyError(f"Dependency of {entry} is out of date, but no "
-                                          f"builder is defined")
+                    raise DependencyError(
+                        f"Dependency of {entry} is out of date, but no "
+                        f"builder is defined"
+                    )
                 out_of_date_entries.add(entry)
                 self._call_builder(entry.builder)
                 built_entries.update(entry.builder.builds)
 
-
-    def _call_builder(self, builder: "Builder"):
+    def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
-        logger.info(f"Building %s", (builder,))
+        logger.info("Building %s", builder)
 
         # First remove its entries and prepare them:
         for entry in builder.builds:
@@ -243,7 +281,9 @@ def _traverse_entry_graph(
     return reachable_entries, edges
 
 
-def _sort_dag(nodes: Collection["Entry"], edges_orig: Mapping["Entry", Iterable["Entry"]]):
+def _sort_dag(
+    nodes: Collection["Entry"], edges_orig: Mapping["Entry", Iterable["Entry"]]
+) -> List["Entry"]:
     """Given a set of entries and a mapping describing the edges, returns a topological
     sort starting at the leaf nodes.
 
@@ -286,7 +326,7 @@ def _sort_dag(nodes: Collection["Entry"], edges_orig: Mapping["Entry", Iterable[
 current_execution: Optional[Execution] = None
 
 
-def set_current_execution(e: Optional[Execution]):
+def set_current_execution(e: Optional[Execution]) -> None:
     global current_execution
     current_execution = e
 
@@ -299,7 +339,7 @@ def get_current_execution() -> Execution:
     return execution
 
 
-def register_alias(alias: str, entries: Args):
+def register_alias(alias: str, entries: Args) -> None:
     """Registers an alias with the current execution"""
     return get_current_execution().register_alias(alias, entries)
 
@@ -319,7 +359,6 @@ class Environment:
         self,
         path: Union[str, Path],
         factory: Type[E],
-        builder: Optional["Builder"] = None,
     ) -> E:
         # Make sure path is always absolute
         # Interpret relative to root
@@ -329,15 +368,6 @@ class Environment:
             entry = self.execution.entries[path]
             if not isinstance(entry, factory):
                 raise TypeError(f"Path {path} already exists but is the wrong type")
-            if (
-                builder is not None
-                and entry.builder is not None
-                and builder is not entry.builder
-            ):
-                raise ValueError(
-                    f"Entry {path} already exists with a different builder"
-                )
-
             return entry
         except KeyError:
             pass
@@ -349,20 +379,21 @@ class Environment:
     def file(
         self,
         path: Union[str, Path, "File"],
-        builder: Optional["Builder"] = None,
     ) -> "File":
         if isinstance(path, File):
             return path
-        return self.create_entry(path, File, builder)
+        return self.create_entry(path, File)
 
     def dir(
         self,
         path: Union[str, Path, "Dir"],
-        builder: Optional["Builder"] = None,
     ) -> "Dir":
         if isinstance(path, Dir):
             return path
-        return self.create_entry(path, Dir, builder)
+        return self.create_entry(
+            path,
+            Dir,
+        )
 
     def get_rel_path(self, src: Union[str, Path]) -> str:
         src = self.root.joinpath(src)
@@ -393,11 +424,7 @@ class Environment:
             full_path = full_path.with_suffix(new_ext)
         return full_path
 
-    def depends_file(
-        self,
-        target: "Builder",
-        source: Union["File", str, Path, "Builder"],
-    ) -> "File":
+    def depends_file(self, target: "Builder", source: FileSources) -> "File":
         """Register the given source as a dependency of the given builder
 
         Resolves the given source object and returns a File object
@@ -419,8 +446,8 @@ class Environment:
     def depends_files(
         self,
         target: "Builder",
-        sources: Union["File", Iterable["File"], "Dir", "Builder", str, Iterable[str]],
-    ) -> Iterable["File"]:
+        sources: FilesSources,
+    ) -> "FileSet":
         """Register the given source(s) as depenedncies of the given builder
 
         Resolves the given source(s) and returns some object that, when iterated over,
@@ -455,11 +482,7 @@ class Environment:
             target.depends.extend(files)
             return files
 
-    def depends_dir(
-        self,
-        target: "Builder",
-        source: Union["Dir", "Builder"],
-    ) -> "Dir":
+    def depends_dir(self, target: "Builder", source: DirSources) -> "Dir":
         """Register the given source as a dependency of the given target builder
 
         This is specifically when the caller is expecting a directory.
@@ -530,14 +553,15 @@ class Entry(ABC):
         Called right before its builder is called.
         """
         # Make sure the parent directory exists
-        self.path.parent.mkdir(parents=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
 
     @abstractmethod
     def get_metadata(self) -> Dict[str, Any]:
         ...
 
     @abstractmethod
-    def remove(self) -> None: ...
+    def remove(self) -> None:
+        ...
 
 
 class File(Entry):
@@ -554,7 +578,9 @@ class File(Entry):
 
 class Dir(Entry):
     def __iter__(self) -> Iterator["File"]:
-        pass  # TODO
+        for path in self.path.glob("**/*"):
+            if path.is_file():
+                yield self.env.file(path)
 
     def get_metadata(self) -> Dict[str, Any]:
         stat_result = os.stat(self.path)
@@ -571,7 +597,8 @@ class Dir(Entry):
         if self.path.is_dir():
             shutil.rmtree(self.path)
 
-class Builder(ABC):
+
+class Builder(ABC, Generic[BuilderType]):
     def __init__(self, env: "Environment"):
         self.env = env
 
@@ -584,7 +611,10 @@ class Builder(ABC):
         # from get_targets() and any calls to side_effects()
         self.builds: List["Entry"] = []
 
-    def side_effect(self, entries: Union["Entry", Iterable["Entry"]]):
+    def __str__(self) -> str:
+        return "{}({})".format(type(self).__name__, " ".join(str(b) for b in self.builds))
+
+    def side_effect(self, entries: Union["Entry", Iterable["Entry"]]) -> None:
         """Registers additional entries as outputs of the current builder, in addition
         to the files the builder returned from get_targets()
 
@@ -600,7 +630,7 @@ class Builder(ABC):
             self.builds.append(entry)
 
     @abstractmethod
-    def get_targets(self) -> Iterable["Entry"]:
+    def get_targets(self) -> BuilderType:
         """Returns a File, list of Files, or a Directory declaring what this builder outputs
 
         Abstract files / directories are resolved to concrete files by the dependent
@@ -622,7 +652,7 @@ class Builder(ABC):
         """
 
     @abstractmethod
-    def build(self, targets):
+    def build(self, targets: BuilderType) -> None:
         """Called to actually build the targets
 
         Output should go to the given targets.

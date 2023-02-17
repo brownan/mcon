@@ -1,12 +1,12 @@
 import argparse
-from pathlib import Path
-from typing import List, Optional
+import logging
 
 import minicons
 from minicons import Execution
 
 
-def main():
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("sconstruct")
     parser.add_argument("target", nargs="+")
@@ -23,6 +23,7 @@ def main():
         minicons.set_current_execution(None)
 
     current_execution.build_targets(args["target"])
+
 
 if __name__ == "__main__":
     main()

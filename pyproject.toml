@@ -1,0 +1,48 @@
+[project]
+name = "minicons"
+version = "0.0.1"
+description = "Mini dependency tracking build framework inspired by SCons"
+authors = [
+    {name = "Andrew Brown", email = "andrew@brownan.org"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Build Tools",
+]
+requires-python = ">= 3.8"
+
+[project.urls]
+"Source Code" = "https://github.com/brownan/minicons"
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "mypy",
+    "sphinx",
+    "furo",
+]
+
+[tool.black]
+target-version = ["py38"]
+line-length = 90
+
+[tool.flake8]
+max_line_length = 90
+select = "E,F,W,B,B950,I25"
+ban-relative-imports = true
+extend-ignore = "E203,E266,E501,B007,W503"
+
+[tool.isort]
+profile = "black"
+atomic = true
+
+[tool.mypy]
+show_error_codes = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+warn_unreachable = true
