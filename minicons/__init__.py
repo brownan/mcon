@@ -76,7 +76,7 @@ class Execution:
         # This memoizes the get_targets() method of each builder
         self.builders: Dict["Builder", BuilderTargetType] = {}
 
-        self.metadata_db = sqlite3.connect(".miniscons.sqlite3", isolation_level=None)
+        self.metadata_db = sqlite3.connect(".minicons.sqlite3", isolation_level=None)
         self.metadata_db.execute("""PRAGMA journal_mode=wal""")
         self.metadata_db.execute(
             """
