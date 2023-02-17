@@ -23,7 +23,7 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    Union,
+    Union, cast,
 )
 
 ArgTypes = Union[Path, "Entry", "Builder", str]
@@ -39,9 +39,7 @@ FilesSources = Union[
     "File",
     "FileSet",
     "Dir",
-    "Builder[File]",
-    "Builder[FileSet]",
-    "Builder[Dir]",
+    "Builder[BuilderType]",
     str,
     Iterable[str],
 ]
@@ -50,25 +48,16 @@ DirSources = Union[
     "Builder[Dir]",
 ]
 FileSet = Iterable["File"]
+BuilderTargetType = Union["File", "Dir", FileSet]
 BuilderType = TypeVar(
     "BuilderType",
-    bound=Union[
-        "File",
-        "Dir",
-        FileSet,
-    ],
+    bound=BuilderTargetType,
 )
 
 
 
 
 logger = getLogger("minicons")
-
-
-class Dependable(Protocol):
-    """An object that has dependencies"""
-
-    depends: List["Entry"]
 
 
 class DependencyError(Exception):
@@ -85,7 +74,7 @@ class Execution:
 
         # Builders we have seen and have definitions for, and what files they build
         # This memoizes the get_targets() method of each builder
-        self.builders: Dict["Builder", List["Entry"]] = {}
+        self.builders: Dict["Builder", BuilderTargetType] = {}
 
         self.metadata_db = sqlite3.connect(".miniscons.sqlite3", isolation_level=None)
         self.metadata_db.execute("""PRAGMA journal_mode=wal""")
@@ -117,38 +106,36 @@ class Execution:
             (str(path), serialized),
         )
 
-    def _resolve_builder(self, builder: "Builder") -> List["Entry"]:
+    def _resolve_builder(self, builder: "Builder[BuilderType]") -> BuilderType:
         """Resolves a builder to its output targets
 
         Also registers the builder with the environment
         """
         try:
-            return self.builders[builder]
+            return cast(BuilderType, self.builders[builder])
         except KeyError:
             pass
         # Register this builder and its targets
         builder_targets = builder.get_targets()
-        entries: List["Entry"]
-        if isinstance(builder_targets, Entry):
-            entries = []
+
+        if isinstance(builder_targets, (File, Dir)):
+            builder_targets.builder = builder
+            builder.builds.append(builder_targets)
+        elif isinstance(builder_targets, Iterable):
+            file: File
+            for file in builder_targets:
+                if not isinstance(file, File):
+                    raise ValueError(f"Builder get_target() returned a non-file in a list: {file}")
+                pass
+                file.builder = builder
+                builder.builds.append(file)
         else:
-            entries = list(builder_targets)
+            raise ValueError(f"Builder {builder} get_targets() did not return "
+                             f"a File, Dir, or list of Files")
 
-        if any(isinstance(e, Dir) for e in entries) and len(entries) != 1:
-            raise ValueError(
-                f"Builder {builder} cannot output more than one target if "
-                f"outputting a Directory"
-            )
+        self.builders[builder] = builder_targets
 
-        for entry in entries:
-            if not isinstance(entry, Entry):
-                raise TypeError("Builder get_target() must return Files or Dirs")
-            if entry.builder is not None and entry.builder is not builder:
-                raise ValueError(f"{entry} is already being built by {entry.builder}")
-            entry.builder = builder
-            builder.builds.append(entry)
-        self.builders[builder] = entries
-        return entries
+        return builder_targets
 
     def _args_to_paths(self, args: Args) -> Iterator[Path]:
         """Resolves a string, path, entry, or builder to Path objects
@@ -432,11 +419,9 @@ class Environment:
         """
         file: "File"
         if isinstance(source, Builder):
-            b_targets = self.execution._resolve_builder(source)
-            files = [t for t in b_targets if isinstance(t, File)]
-            if len(files) != 1:
+            file = self.execution._resolve_builder(source)
+            if not isinstance(file, File):
                 raise ValueError(f"Builder {source} expected to return a single file")
-            file = files[0]
         else:
             file = self.file(source)
 
@@ -455,19 +440,11 @@ class Environment:
 
         """
         if isinstance(sources, Builder):
-            b_targets = self.execution._resolve_builder(sources)
-            if len(b_targets) == 1:
-                d = b_targets[0]
-                if isinstance(d, Dir):
-                    target.depends.append(d)
-                    return d
-            # isinstance filter is just a sanity check at this point. Builders
-            # should not be returning multiple objects unless they're all File objects.
-            # This limitation could possibly be removed if needed.
-            files = [t for t in b_targets if isinstance(t, File)]
-            target.depends.extend(files)
-            return files
-        elif isinstance(sources, Dir):
+            sources = self.execution._resolve_builder(sources)
+            if not isinstance(sources, (File, Dir, Iterable)):
+                raise ValueError("Builder must return a File, Dir, or iterable of Files")
+
+        if isinstance(sources, Dir):
             target.depends.append(sources)
             return sources
         elif isinstance(sources, File):
@@ -477,7 +454,8 @@ class Environment:
             file = self.file(sources)
             target.depends.append(file)
             return [file]
-        else:
+        elif isinstance(sources, Iterable):
+            # Iterable of files or strings
             files = [self.file(s) for s in sources]
             target.depends.extend(files)
             return files
@@ -489,16 +467,12 @@ class Environment:
 
         """
         if isinstance(source, Builder):
-            b_targets = self.execution._resolve_builder(source)
-            if len(b_targets) != 1:
-                raise ValueError(
-                    f"Builder {source} expected to return exactly one directory"
-                )
-            d = b_targets[0]
+            d = self.execution._resolve_builder(source)
             if not isinstance(d, Dir):
                 raise ValueError(
-                    f"Builder {source} expected to return exactly one directory"
+                    f"Builder {source} expected to return a directory"
                 )
+
         else:
             d = self.dir(source)
 
