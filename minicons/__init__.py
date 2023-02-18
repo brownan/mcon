@@ -78,9 +78,9 @@ class Execution:
         self.metadata_db.execute("""PRAGMA journal_mode=wal""")
         self.metadata_db.execute(
             """
-        CREATE TABLE IF NOT EXISTS
-        file_metadata (path text PRIMARY KEY, metadata text)
-        """
+            CREATE TABLE IF NOT EXISTS
+            file_metadata (path text PRIMARY KEY, metadata text)
+            """
         )
 
     def _get_metadata(self, path: Path) -> Dict[str, Any]:
@@ -99,8 +99,8 @@ class Execution:
         serialized = json.dumps(metadata)
         self.metadata_db.execute(
             """
-        INSERT OR REPLACE INTO file_metadata (path, metadata) VALUES (?, ?)
-        """,
+            INSERT OR REPLACE INTO file_metadata (path, metadata) VALUES (?, ?)
+            """,
             (str(path), serialized),
         )
 
@@ -364,9 +364,13 @@ def register_alias(alias: str, entries: Args) -> None:
 
 class Environment:
     def __init__(
-        self, build_dir: Optional[Path] = None, execution: Optional[Execution] = None
+        self,
+        *,
+        path: Optional[Path] = None,
+        build_dir: Optional[Path] = None,
+        execution: Optional[Execution] = None,
     ):
-        self.root = Path.cwd()
+        self.root = path or Path.cwd()
         self.build_root = build_dir or self.root.joinpath("build")
 
         if not execution:
@@ -584,11 +588,6 @@ class Dir(Entry, Collection["File"]):
         super().__init__(env, path)
         self.glob_pattern = glob
 
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, Dir):
-            return self.glob_pattern == other.glob_pattern and super().__eq__(other)
-        return super().__eq__(other)
-
     def __iter__(self) -> Iterator["File"]:
         for path in self.path.glob(self.glob_pattern):
             if path.is_file():
@@ -641,7 +640,7 @@ class Builder(ABC, Generic[BuilderType]):
 
     These three methods return a File, FileSet, and Dir object respectively. Their parameter
     is one of several objects that may be coerced to the respective output type, such as a string,
-    list of strings, Path object, File object, Dir object, or another Builder.
+    Path object, File object, list of the above, Dir object, or another Builder.
 
     If a Builder is passed to one of those methods, that builder must return the matching
     type as its target.
