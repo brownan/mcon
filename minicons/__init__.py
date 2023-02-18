@@ -23,7 +23,8 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    Union, cast,
+    Union,
+    cast,
 )
 
 ArgTypes = Union[Path, "Entry", "Builder", str]
@@ -53,8 +54,6 @@ BuilderType = TypeVar(
     "BuilderType",
     bound=BuilderTargetType,
 )
-
-
 
 
 logger = getLogger("minicons")
@@ -125,13 +124,17 @@ class Execution:
             file: File
             for file in builder_targets:
                 if not isinstance(file, File):
-                    raise ValueError(f"Builder get_target() returned a non-file in a list: {file}")
+                    raise ValueError(
+                        f"Builder get_target() returned a non-file in a list: {file}"
+                    )
                 pass
                 file.builder = builder
                 builder.builds.append(file)
         else:
-            raise ValueError(f"Builder {builder} get_targets() did not return "
-                             f"a File, Dir, or list of Files")
+            raise ValueError(
+                f"Builder {builder} get_targets() did not return "
+                f"a File, Dir, or list of Files"
+            )
 
         self.builders[builder] = builder_targets
 
@@ -196,38 +199,64 @@ class Execution:
         # Scan all entries to determine which are out of date
         out_of_date_entries: Set["Entry"] = set()
         for entry in ordered_entries:
-            old_metadata = self._get_metadata(entry.path)
-            if entry.path.exists():
-                new_metadata = entry.get_metadata()
-            else:
-                new_metadata = None
-            if new_metadata is None or entry.metadata_differs(old_metadata, new_metadata):
+            if not entry.builder:
+                # Leaf nodes are files which don't have a builder and cannot be built.
+                # Keep in mind that a file itself cannot be "out of date". Files are
+                # only out of date with respect to a particular builder, and a file
+                # in isolation may have multiple builders. Since it has no builder, we
+                # cannot add it to out_of_date_entries because we cannot take any
+                # action to make that file "up to date".
+                continue
+            elif not entry.path.exists():
+                # Always build if it doesn't actually exist
                 out_of_date_entries.add(entry)
+            else:
+                # Check if any of its dependencies have changed by comparing the
+                # metadata signature to the saved signature
+                old_metadata = self._get_metadata(entry.path)
+                new_metadata = self._build_entry_metadata(entry, dependencies)
+                if old_metadata != new_metadata:
+                    out_of_date_entries.add(entry)
 
         if not out_of_date_entries:
             logger.info("All files up to date")
 
-        # Build entries that depend on out of date entries
+        # Go through and mark entries which are dependent on out of date entries as
+        # also being out of date, so that we have a complete set of entries needing building
+        for entry in ordered_entries:
+            if any(e in out_of_date_entries for e in dependencies[entry]):
+                out_of_date_entries.add(entry)
+
+        # Build out-of-date entries
         built_entries: Set["Entry"] = set()
         for entry in ordered_entries:
             if (
-                any(dep in out_of_date_entries for dep in dependencies[entry])
+                entry in out_of_date_entries
                 and entry not in built_entries
             ):
-                # One of this entry's dependencies is marked as out of date, so it must be
-                # built.
-                if not entry.builder:
-                    raise DependencyError(
-                        f"Dependency of {entry} is out of date, but no "
-                        f"builder is defined"
-                    )
-                out_of_date_entries.add(entry)
+                # Only entries which have a builder have been added to the out-of-date set
+                assert entry.builder
+
                 self._call_builder(entry.builder)
                 built_entries.update(entry.builder.builds)
-                # Save metadata for this entry
+                # Save metadata for this entry. We have to re-gather the metadata
+                # signature instead of re-using the one from above because its dependencies
+                # may have changed by previously called builders since then.
                 for built_entry in entry.builder.builds:
-                    self._set_metadata(built_entry.path, built_entry.get_metadata())
+                    new_metadata = self._build_entry_metadata(built_entry, dependencies)
+                    self._set_metadata(built_entry.path, new_metadata)
 
+    def _build_entry_metadata(
+        self, entry: "Entry", dependencies: Mapping["Entry", Collection["Entry"]]
+    ) -> Any:
+        # An entry's metadata is used to compare whether it needs to be rebuilt. It encodes
+        # the signatures of all entries it depends on.
+        dep_metadata: Dict[str, Any] = {}
+        for dep in dependencies[entry]:
+            dep_metadata[str(dep.path)] = dep.get_metadata()
+        return {
+            "dependencies": dep_metadata,
+        }
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
@@ -241,10 +270,10 @@ class Execution:
 
         builder.build(self.builders[builder])
 
-        # check this builder's output entries
-        for out_entry in builder.builds:
-            if not out_entry.path.exists():
-                raise DependencyError(f"Builder {builder} didn't output {out_entry}")
+        # check that the outputs were actually created
+        for entry in builder.builds:
+            if not entry.path.exists():
+                raise DependencyError(f"Builder {builder} didn't output {entry}")
 
 
 def _traverse_entry_graph(
@@ -476,9 +505,7 @@ class Environment:
         if isinstance(source, Builder):
             d = self.execution._resolve_builder(source)
             if not isinstance(d, Dir):
-                raise ValueError(
-                    f"Builder {source} expected to return a directory"
-                )
+                raise ValueError(f"Builder {source} expected to return a directory")
 
         else:
             d = self.dir(source)
@@ -540,12 +567,9 @@ class Entry(ABC):
     def get_metadata(self) -> Dict[str, Any]:
         ...
 
-    @staticmethod
     @abstractmethod
-    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool: ...
-
-    @abstractmethod
-    def remove(self) -> None: ...
+    def remove(self) -> None:
+        ...
 
 
 class File(Entry):
@@ -555,13 +579,6 @@ class File(Entry):
             "mtime": stat_result.st_mtime,
             "is_file": stat.S_ISREG(stat_result.st_mode),
         }
-
-    @staticmethod
-    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
-        if not old.get("is_file") or not new.get("is_file"):
-            return True
-        old_mtime = old.get("mtime")
-        return not old_mtime or old_mtime < new["mtime"]
 
     def remove(self) -> None:
         self.path.unlink(missing_ok=True)
@@ -583,19 +600,6 @@ class Dir(Entry):
             file_metadata = file.get_metadata()
             metadata["files"][str(file.path)] = file_metadata
         return metadata
-
-    @staticmethod
-    def metadata_differs(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
-        if not old.get("is_dir") or not new.get("is_dir"):
-            return True
-        old_files: Dict[str, Dict] = old.get("files", {})
-        new_files: Dict[str, Dict] = new["files"]
-        if old_files.keys() != new_files.keys():
-            return True
-        for filepath, filemetadata in old_files.items():
-            if File.metadata_differs(filemetadata, new_files[filepath]):
-                return True
-        return False
 
     def remove(self) -> None:
         if self.path.is_dir():
