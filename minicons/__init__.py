@@ -47,7 +47,7 @@ DirSources = Union[
     "Dir",
     "Builder[Dir]",
 ]
-FileSet = Iterable["File"]
+FileSet = Collection["File"]
 BuilderTargetType = Union["File", "Dir", FileSet]
 BuilderType = TypeVar(
     "BuilderType",
@@ -124,15 +124,14 @@ class Execution:
             for file in builder_targets:
                 if not isinstance(file, File):
                     raise ValueError(
-                        f"Builder get_target() returned a non-file in a list: {file}"
+                        f"Builder get_target() returned a non-file in its FileSet: {file}"
                     )
-                pass
                 file.builder = builder
                 builder.builds.append(file)
         else:
             raise ValueError(
                 f"Builder {builder} get_targets() did not return "
-                f"a File, Dir, or list of Files"
+                f"a File, Dir, or collection of Files"
             )
 
         self.builders[builder] = builder_targets
@@ -580,11 +579,26 @@ class File(Entry):
         self.path.unlink(missing_ok=True)
 
 
-class Dir(Entry):
+class Dir(Entry, Collection["File"]):
+    def __init__(self, env: Environment, path: Path, glob: str = "**/*"):
+        super().__init__(env, path)
+        self.glob_pattern = glob
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, Dir):
+            return self.glob_pattern == other.glob_pattern and super().__eq__(other)
+        return super().__eq__(other)
+
     def __iter__(self) -> Iterator["File"]:
-        for path in self.path.glob("**/*"):
+        for path in self.path.glob(self.glob_pattern):
             if path.is_file():
                 yield self.env.file(path)
+
+    def __contains__(self, item: Any) -> bool:
+        return any(item == d for d in self)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
 
     def get_metadata(self) -> Dict[str, Any]:
         stat_result = os.stat(self.path)
@@ -603,6 +617,45 @@ class Dir(Entry):
 
 
 class Builder(ABC, Generic[BuilderType]):
+    """Base builder class. Builder classes define how to build one or more files.
+
+    All derived files must have a declared builder. Builders come in three types, shown
+    along with their respective type signature declarations:
+    1) Outputs a single file
+       class MyBuilder(Builder[File]): ...
+    2) Outputs multiple files
+       class MyBuilder(Builder[FileSet]): ...
+    3) Outputs a directory
+       class MyBuilder(Builder[Dir]): ...
+
+    (If you're not using type checking, you can omit the generic part of the type signature)
+
+    Builders declare the files they build by returning a File, FileSet, or Dir object
+    from their .get_targets() method. Subclasses must override and implement get_targets().
+
+    Builders must declare the files they depend on by using one of these methods provided
+    by the Environment:
+    self.env.depends_file()
+    self.env.depends_files()
+    self.env.depends_dir()
+
+    These three methods return a File, FileSet, and Dir object respectively. Their parameter
+    is one of several objects that may be coerced to the respective output type, such as a string,
+    list of strings, Path object, File object, Dir object, or another Builder.
+
+    If a Builder is passed to one of those methods, that builder must return the matching
+    type as its target.
+
+    Builders may have other files it generates as a side effect other than the ones returned
+    by .get_targets(). These are declared by passing them to self.side_effect(). Those files
+    may be made available as the builder sees fit (for example, as an attribute or by passing
+    to another internally wrapped builder instance).
+
+    It is critical that Builders use the env.depends_*() methods to declare their dependencies,
+    and use either get_targets() or side_effects() to declare their outputs, so that dependency
+    tracking to work correctly.
+    """
+
     def __init__(self, env: "Environment"):
         self.env = env
 
@@ -635,23 +688,14 @@ class Builder(ABC, Generic[BuilderType]):
 
     @abstractmethod
     def get_targets(self) -> BuilderType:
-        """Returns a File, list of Files, or a Directory declaring what this builder outputs
-
-        Abstract files / directories are resolved to concrete files by the dependent
-        builders before passing back to this builder's build().
+        """Returns a File, list of Files, or a Directory declaring what this builder outputs.
 
         The returned items from this method declare what this builder outputs. Generally,
-        builders should output abstract files if the exact set of files is known at resolution
-        time.
+        builders should output a File or FileSet if they know the files they output at
+        construction time.
 
-        Some builders don't know the set of files being output until build time, in which case
-        they should return an abstract directory which the builder should use at build time
-        to write its output files to.
-
-        If the builder wants to output its files to a particular place in the filesystem,
-        it can return a concrete file list or directory. The intent of abstract files
-        is so builders don't have to worry about the location of their output, letting
-        the build framework determine where files should go.
+        Builders which don't know the files they output until build time should output
+        a directory, and place all their output files in that directory.
 
         """
 
@@ -659,13 +703,9 @@ class Builder(ABC, Generic[BuilderType]):
     def build(self, targets: BuilderType) -> None:
         """Called to actually build the targets
 
-        Output should go to the given targets.
-        The targets argument is a concrete or set of concrete objects corresponding to
-        what was previously returned by get_output().
+        The given targets are the same objects returned previously from get_targets().
+        A Builder implementation may need to keep track of its targets in instance attributes,
+        in which case the targets argument here is redundant. It is provided for
+        convenience.
 
-        So if get_output() returned an AbstractFile, this method is passed a ConcreteFile
-        and is expected to write its output to that file.
-
-        Similarly, if AbstractDirectory was given, a ConcreteDirectory is passed in here
-        and this builder is expected to write all its files underneath the given directory.
         """
