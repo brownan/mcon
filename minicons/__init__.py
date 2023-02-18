@@ -18,7 +18,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Protocol,
     Set,
     Tuple,
     Type,
@@ -230,10 +229,7 @@ class Execution:
         # Build out-of-date entries
         built_entries: Set["Entry"] = set()
         for entry in ordered_entries:
-            if (
-                entry in out_of_date_entries
-                and entry not in built_entries
-            ):
+            if entry in out_of_date_entries and entry not in built_entries:
                 # Only entries which have a builder have been added to the out-of-date set
                 assert entry.builder
 
