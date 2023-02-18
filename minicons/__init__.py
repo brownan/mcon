@@ -3,7 +3,6 @@ import json
 import os
 import shutil
 import sqlite3
-import stat
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from logging import getLogger
@@ -63,6 +62,15 @@ class DependencyError(Exception):
 
 
 class Execution:
+    """An execution is the top level object which controls the build process
+
+    An execution object keeps track of all the builders, entries, and aliases. Environments
+    attached to an Execution will add their builders and entries to their Execution instance.
+
+    Typically, a process will have a single global Execution instance, but for embedding minicons
+    in a larger application it may be useful to manage separate Executions.
+    """
+
     def __init__(self) -> None:
         self.aliases: Dict[str, List[Path]] = {}
 
@@ -363,6 +371,20 @@ def register_alias(alias: str, entries: Args) -> None:
 
 
 class Environment:
+    """An Environment object controls the context in which Builders live
+
+    An Environment exists to define the root directory and build directory for Builders.
+    Multiple Environments can exist within a single Execution, meaning Builders will use
+    the root and build directories attached to their respective environments.
+
+    The build directory is intended to be the directory where derived, intermediate files
+    are saved by Builder implementations. Builders should use Environment.get_build_path()
+    or Entry.derive() to automatically choose a suitable place for a derived file.
+
+    If an Environment isn't initialized with an explicit Execution instance, the global
+    Execution will be used (if one exists, otherwise an error is raised)
+    """
+
     def __init__(
         self,
         *,
@@ -418,6 +440,30 @@ class Environment:
         )
 
     def get_rel_path(self, src: Union[str, Path]) -> str:
+        """Returns the path to the given source file relative to either the environment's
+        root or the file's build directory
+
+        If the given source is underneath an immediate subdirectory of the self.build_root
+        directory, then the returned path is relative to that build subdirectory. Otherwise,
+        the returned path is relative to self.root.
+
+        >>> env = Environment()
+        >>> env.get_rel_path("foo/bar/baz.txt")
+            "foo/bar/baz.py"
+        >>> env.get_rel_path("build/bdir/foo/bar/baz.txt")
+            "foo/bar/baz.txt
+
+        This is useful for discovering the original path to a file which may or may not be
+        currently under a build directory. This allows better composibility of Builders.
+        When a builder wishes to create a new file derived from some exsiting file, that
+        Builder shouldn't care whether the file is an original source or itself derived
+        and build in another build directory. Using get_rel_path() helps builders preserve
+        the original relative directory regardless of whether the file is an "original"
+        file or a derived file in a build directory.
+
+        For builders where it's not important to preserve the original directory structure
+        of files they build, use of this method is not necessary.
+        """
         src = self.root.joinpath(src)
 
         # See if the build directory is one of the parents:
@@ -438,6 +484,31 @@ class Environment:
         build_dir: Union[str, Path],
         new_ext: Optional[str] = None,
     ) -> Path:
+        """Create a suitable path under self.build_root for files derived from src
+
+        For a given "src" path, computes the same path but rooted at the given build directory.
+        build_dir can be either a string, which is taken as the name of a subdirectory
+        under self.build_root. build_dir can also be a Path, in which case it MUST refer
+        to a direct subdirectory of self.build_root.
+
+        This method should be used by any builders which need to output derived files from
+        some source. Using this method ensures that the relative path structure is preserved
+        regardless of whether the source is in the source tree or itself some derived file
+        under a build directory.
+
+        This builds on top of get_rel_path(). See get_rel_path() docstring for rationale on use
+        of automatic path creation which preserves relative paths.
+
+
+        >>> env = Environment()
+        >>> env.get_build_path("src/foo/bar.c", "obj", ".o")
+            "build/obj/src/foo/bar.o"
+        >>> env.get_build_path("build/obj/src/foo/bar.o", "lib", ".so")
+            "build/lib/src/foo/bar.so
+
+        The new_ext parameter can be used to change the file extension. An empty string will
+        strip the extension off entirely.
+        """
         rel_path = self.get_rel_path(src)
         build_dir = self.build_root.joinpath(build_dir)
 
@@ -468,10 +539,11 @@ class Environment:
         target: "Builder",
         sources: FilesSources,
     ) -> "FileSet":
-        """Register the given source(s) as depenedncies of the given builder
+        """Register the given source(s) as dependencies of the given builder
 
-        Resolves the given source(s) and returns some object that, when iterated over,
-        produces File objects. This is typically either a list of Files or a Dir.
+        Resolves the given source(s) and returns a Collection of File objects.
+        This is typically either a list of Files or a Dir, but the returned objects are
+        not guaranteed to be exactly those types.
 
         """
         if isinstance(sources, Builder):
@@ -525,7 +597,7 @@ class Entry(ABC):
         self.path: Path = path
 
         # Which builder builds this entry
-        # That builder's dependencies are implicit dependencies of this entry.
+        # This builder's dependencies are implicit dependencies of this entry.
         self.builder: Optional["Builder"] = None
 
         # Explicit list of additional other entries this one depends on
@@ -549,7 +621,7 @@ class Entry(ABC):
         return f"{cls_name}({rel_path!r})"
 
     def derive(self: E, build_dir_name: str, new_ext: Optional[str] = None) -> E:
-        """Create a derivative file/dir from this entry"""
+        """Create a derivative file/dir from this entry using Environment.get_build_path()"""
         new_path = self.env.get_build_path(self.path, build_dir_name, new_ext)
 
         return self.env.create_entry(new_path, type(self))
@@ -564,10 +636,12 @@ class Entry(ABC):
 
     @abstractmethod
     def get_metadata(self) -> Dict[str, Any]:
+        """Returns any metadata this entry should use to compare whether it has changed"""
         ...
 
     @abstractmethod
     def remove(self) -> None:
+        """Removes this entry from the filesystem. Called before building this entry"""
         ...
 
 
@@ -575,8 +649,9 @@ class File(Entry):
     def get_metadata(self) -> Dict[str, Any]:
         stat_result = os.stat(self.path)
         return {
-            "mtime": stat_result.st_mtime,
-            "is_file": stat.S_ISREG(stat_result.st_mode),
+            "mtime": stat_result.st_mtime_ns,
+            "mode": stat_result.st_mode,
+            "size": stat_result.st_size,
         }
 
     def remove(self) -> None:
@@ -602,7 +677,10 @@ class Dir(Entry, Collection["File"]):
     def get_metadata(self) -> Dict[str, Any]:
         stat_result = os.stat(self.path)
         metadata: Dict[str, Any]
-        metadata = {"is_dir": stat.S_ISDIR(stat_result.st_mode), "files": {}}
+        metadata = {
+            "mode": stat_result.st_mode,
+            "files": {},
+        }
 
         file_list: List["File"] = list(self)
         for file in file_list:
