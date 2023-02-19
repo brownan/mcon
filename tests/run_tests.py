@@ -5,13 +5,14 @@ from pathlib import Path
 from unittest import TestCase
 
 from minicons.builder import Builder
+from minicons.builders.c import SharedLibrary
 from minicons.entry import Dir, File
 from minicons.environment import Environment
 from minicons.execution import Execution
 from minicons.types import FileSet, FileSource
 
 
-class MiniconsTests(TestCase):
+class Common(TestCase):
     def setUp(self) -> None:
         with ExitStack() as stack:
             tempdir = stack.enter_context(tempfile.TemporaryDirectory())
@@ -25,6 +26,8 @@ class MiniconsTests(TestCase):
     def tearDown(self) -> None:
         self.stack.__exit__(None, None, None)
 
+
+class MiniconsTests(Common):
     def test_file_builder(self) -> None:
         """Tests a builder which outputs a file"""
 
@@ -130,3 +133,21 @@ class MiniconsTests(TestCase):
 
         self.execution.build_targets(prepared_build=prepared)
         self.assertEqual(outpath.read_text(), "Version 2")
+
+
+class TestSharedLibrary(Common):
+    def test_build_shared_library(self) -> None:
+        infile = self.env.file("infile.c")
+        infile.path.write_text(
+            """
+#include <stdio.h>
+void main() {
+    printf("Hello, world!");
+    return;
+}
+        """
+        )
+        target = infile.derive("lib", ".so")
+        builder = SharedLibrary(self.env, target, infile)
+        self.execution.build_targets(builder)
+        self.assertTrue(target.path.exists())

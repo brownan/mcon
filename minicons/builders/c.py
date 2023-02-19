@@ -16,9 +16,8 @@ class SharedLibrary(Builder[File]):
         include_dirs: Optional[Iterable[str]] = None,
         lib_dirs: Optional[Iterable[str]] = None,
     ):
-        super().__init__(env)
+        super().__init__(env, target)
         self.sources = self.depends_files(sources)
-        self.target = target
         self.cc: str = cc
         self.cflags: List[str]
         if isinstance(cflags, str):
@@ -33,12 +32,12 @@ class SharedLibrary(Builder[File]):
     def get_targets(self) -> File:
         return self.target
 
-    def build(self, target: File) -> None:
+    def build(self) -> None:
         cmdline = [
             self.cc,
             "-shared",
             "-o",
-            str(target.path),
+            str(self.target.path),
         ]
         for incdir in self.include_dirs:
             cmdline.extend(["-I", incdir])
