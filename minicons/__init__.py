@@ -1,4 +1,5 @@
 """Proof of concept of a dead simple dependency tracker and build framework"""
+import dataclasses
 import json
 import os
 import shutil
@@ -17,6 +18,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Type,
@@ -28,13 +30,13 @@ from typing import (
 ArgTypes = Union[Path, "Entry", "Builder", str]
 Args = Union[ArgTypes, Iterable[ArgTypes]]
 E = TypeVar("E", bound="Entry")
-FileSources = Union[
+FileSource = Union[
     "File",
     str,
     Path,
     "Builder[File]",
 ]
-FilesSources = Union[
+FilesSource = Union[
     "File",
     "FileSet",
     "Dir",
@@ -42,7 +44,7 @@ FilesSources = Union[
     str,
     Iterable[str],
 ]
-DirSources = Union[
+DirSource = Union[
     "Dir",
     "Builder[Dir]",
 ]
@@ -61,6 +63,14 @@ class DependencyError(Exception):
     pass
 
 
+@dataclasses.dataclass
+class PreparedBuild:
+    ordered_entries: Sequence["Entry"]
+    dependencies: Mapping["Entry", Collection["Entry"]]
+    out_of_date: Collection["Entry"]
+    to_build: Collection["Entry"]
+
+
 class Execution:
     """An execution is the top level object which controls the build process
 
@@ -71,7 +81,8 @@ class Execution:
     in a larger application it may be useful to manage separate Executions.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, root: Union[str, Path]) -> None:
+        self.root = Path(root).resolve()
         self.aliases: Dict[str, List[Path]] = {}
 
         # Maps paths to entries. Memoizes calls to file() and dir()
@@ -82,7 +93,9 @@ class Execution:
         # This memoizes the get_targets() method of each builder
         self.builders: Dict["Builder", BuilderTargetType] = {}
 
-        self.metadata_db = sqlite3.connect(".minicons.sqlite3", isolation_level=None)
+        self.metadata_db = sqlite3.connect(
+            self.root.joinpath(".minicons.sqlite3"), isolation_level=None
+        )
         self.metadata_db.execute("""PRAGMA journal_mode=wal""")
         self.metadata_db.execute(
             """
@@ -183,7 +196,11 @@ class Execution:
         paths = list(self._args_to_paths(entries))
         self.aliases[alias] = paths
 
-    def build_targets(self, targets: Args) -> None:
+    def prepare_build(self, targets: Args) -> PreparedBuild:
+        """Prepare to build the given targets
+
+        This builds the final dependency graph and the set of out of date nodes
+        """
         # Resolve all targets to paths
         target_paths: List[Path] = list(self._args_to_paths(targets))
 
@@ -207,15 +224,23 @@ class Execution:
         for entry in ordered_entries:
             if not entry.builder:
                 # Leaf nodes are files which don't have a builder and cannot be built.
-                # Keep in mind that a file itself cannot be "out of date". Files are
-                # only out of date with respect to a particular builder, and a file
-                # in isolation may have multiple builders. Since it has no builder, we
-                # cannot add it to out_of_date_entries because we cannot take any
+                # Keep in mind that a file itself cannot be "out of date". A file is
+                # only out of date with respect to a its dependencies, and a file
+                # in isolation may be used by multiple builders. Since it has no builder
+                # itself, we cannot add it to out_of_date_entries because we cannot take any
                 # action to make that file "up to date".
                 continue
             elif not entry.path.exists():
                 # Always build if it doesn't actually exist
                 out_of_date_entries.add(entry)
+            elif not dependencies[entry]:
+                # This entry has no dependencies, meaning there are no explicitly defined
+                # dependencies and its builder doesn't have any dependencies.
+                # How do we know if this file needs building? In the absence of external
+                # information, we don't. In the future we should have a way to specify
+                # "always build" on a file or builder, but for now we assume if the file
+                # exists, it's good.
+                pass
             else:
                 # Check if any of its dependencies have changed by comparing the
                 # metadata signature to the saved signature
@@ -224,30 +249,66 @@ class Execution:
                 if old_metadata != new_metadata:
                     out_of_date_entries.add(entry)
 
+        # Build a complete set of all entries that need building: out of date entries plus all
+        # dependent entries
+        to_build = set(out_of_date_entries)
+        for entry in ordered_entries:
+            if any(e in to_build for e in dependencies[entry]):
+                to_build.add(entry)
+
+        return PreparedBuild(
+            ordered_entries=ordered_entries,
+            out_of_date=out_of_date_entries,
+            to_build=to_build,
+            dependencies=dependencies,
+        )
+
+    def build_targets(
+        self,
+        targets: Optional[Args] = None,
+        prepared_build: Optional[PreparedBuild] = None,
+        dry_run: bool = False,
+    ) -> None:
+        """Build the given targets
+
+        A target or list of targets is given to build. Alternatively, a PreparedBuild as previously
+        returned from Execution.prepare_build() may be given.
+
+        """
+        if prepared_build is None:
+            if targets is None:
+                raise ValueError("Either targets or a prepared build must be given")
+            else:
+                prepared_build = self.prepare_build(targets)
+        elif targets is not None:
+            raise ValueError("Targets and prepared_build cannot be specified together")
+
+        ordered_entries = prepared_build.ordered_entries
+        out_of_date_entries = prepared_build.out_of_date
+        dependencies = prepared_build.dependencies
+        to_build = prepared_build.to_build
+
         if not out_of_date_entries:
             logger.info("All files up to date")
+            return
 
-        # Go through and mark entries which are dependent on out of date entries as
-        # also being out of date, so that we have a complete set of entries needing building
-        for entry in ordered_entries:
-            if any(e in out_of_date_entries for e in dependencies[entry]):
-                out_of_date_entries.add(entry)
-
-        # Build out-of-date entries
+        # Build
         built_entries: Set["Entry"] = set()
         for entry in ordered_entries:
-            if entry in out_of_date_entries and entry not in built_entries:
+            if entry in to_build and entry not in built_entries:
                 # Only entries which have a builder have been added to the out-of-date set
                 assert entry.builder
 
-                self._call_builder(entry.builder)
-                built_entries.update(entry.builder.builds)
-                # Save metadata for this entry. We have to re-gather the metadata
-                # signature instead of re-using the one from above because its dependencies
-                # may have changed by previously called builders since then.
-                for built_entry in entry.builder.builds:
-                    new_metadata = self._build_entry_metadata(built_entry, dependencies)
-                    self._set_metadata(built_entry.path, new_metadata)
+                logger.info("Building %s", entry.builder)
+                if not dry_run:
+                    self._call_builder(entry.builder)
+                    built_entries.update(entry.builder.builds)
+                    # Save metadata for this entry
+                    for built_entry in entry.builder.builds:
+                        new_metadata = self._build_entry_metadata(
+                            built_entry, dependencies
+                        )
+                        self._set_metadata(built_entry.path, new_metadata)
 
     def _build_entry_metadata(
         self, entry: "Entry", dependencies: Mapping["Entry", Collection["Entry"]]
@@ -263,8 +324,6 @@ class Execution:
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
-        logger.info("Building %s", builder)
-
         # First remove its entries and prepare them:
         for entry in builder.builds:
             entry.remove()
@@ -388,16 +447,16 @@ class Environment:
     def __init__(
         self,
         *,
-        path: Optional[Path] = None,
-        build_dir: Optional[Path] = None,
+        root: Optional[Path] = None,
+        build_root: Optional[Path] = None,
         execution: Optional[Execution] = None,
     ):
-        self.root = path or Path.cwd()
-        self.build_root = build_dir or self.root.joinpath("build")
-
         if not execution:
             execution = get_current_execution()
+
         self.execution: Execution = execution
+        self.root = root or self.execution.root
+        self.build_root = build_root or self.root.joinpath("build")
 
     def create_entry(
         self,
@@ -517,7 +576,7 @@ class Environment:
             full_path = full_path.with_suffix(new_ext)
         return full_path
 
-    def depends_file(self, target: "Builder", source: FileSources) -> "File":
+    def depends_file(self, target: "Builder", source: FileSource) -> "File":
         """Register the given source as a dependency of the given builder
 
         Resolves the given source object and returns a File object
@@ -537,7 +596,7 @@ class Environment:
     def depends_files(
         self,
         target: "Builder",
-        sources: FilesSources,
+        sources: FilesSource,
     ) -> "FileSet":
         """Register the given source(s) as dependencies of the given builder
 
@@ -567,7 +626,7 @@ class Environment:
             target.depends.extend(files)
             return files
 
-    def depends_dir(self, target: "Builder", source: DirSources) -> "Dir":
+    def depends_dir(self, target: "Builder", source: DirSource) -> "Dir":
         """Register the given source as a dependency of the given target builder
 
         This is specifically when the caller is expecting a directory.
@@ -786,3 +845,13 @@ class Builder(ABC, Generic[BuilderType]):
         convenience.
 
         """
+
+    # Shorthand convenience methods on the builder
+    def depends_file(self, source: FileSource) -> "File":
+        return self.env.depends_file(self, source)
+
+    def depends_files(self, sources: FilesSource) -> FileSet:
+        return self.env.depends_files(self, sources)
+
+    def depends_dir(self, source: DirSource) -> "Dir":
+        return self.env.depends_dir(self, source)

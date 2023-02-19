@@ -1,5 +1,6 @@
 import argparse
 import logging
+from pathlib import Path
 
 import minicons
 from minicons import Execution
@@ -8,14 +9,15 @@ from minicons import Execution
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
-    parser.add_argument("sconstruct")
+    parser.add_argument("--construct", default="construct.py")
     parser.add_argument("target", nargs="+")
     args = vars(parser.parse_args())
 
-    contents = open(args["sconstruct"], "r").read()
-    code = compile(contents, args["sconstruct"], "exec", optimize=0)
+    construct_path = Path(args["construct"]).resolve()
+    contents = open(construct_path, "r").read()
+    code = compile(contents, args["construct"], "exec", optimize=0)
 
-    current_execution = Execution()
+    current_execution = Execution(construct_path.parent)
     minicons.set_current_execution(current_execution)
     try:
         exec(code, {})

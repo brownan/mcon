@@ -1,9 +1,10 @@
+import os
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from unittest import TestCase
 
-from minicons import Builder, Dir, Environment, Execution, File, FileSet
+from minicons import Builder, Dir, Environment, Execution, File, FileSet, FileSource
 
 
 class MiniconsTests(TestCase):
@@ -14,8 +15,8 @@ class MiniconsTests(TestCase):
 
             self.stack = stack.pop_all()
 
-        self.execution = Execution()
-        self.env = Environment(path=self.root, execution=self.execution)
+        self.execution = Execution(self.root)
+        self.env = Environment(root=self.root, execution=self.execution)
 
     def tearDown(self) -> None:
         self.stack.__exit__(None, None, None)
@@ -38,6 +39,10 @@ class MiniconsTests(TestCase):
             self.root.joinpath("foo.txt").read_text(),
             "Hello, world!",
         )
+
+        # Make sure this file isn't built again if re-run
+        prepared_build = self.execution.prepare_build(builder)
+        self.assertFalse(prepared_build.to_build)
 
     def test_files_builder(self) -> None:
         """Tests a builder which outputs multiple files"""
@@ -86,3 +91,44 @@ class MiniconsTests(TestCase):
         self.assertEqual(
             list(d), [self.env.file("foo/foo.txt"), self.env.file("foo/bar.txt")]
         )
+
+    def test_file_dependency(self) -> None:
+        """Tests the dependency checker"""
+
+        class TestBuilder(Builder[File]):
+            def __init__(self, env: Environment, source: FileSource) -> None:
+                super().__init__(env)
+                self.source = self.depends_file(source)
+
+            def get_targets(self) -> File:
+                return self.source.derive("bdir")
+
+            def build(self, target: File) -> None:
+                target.path.write_text(self.source.path.read_text())
+
+        inpath = Path(self.root.joinpath("foo.txt"))
+        inpath.write_text("Version 1")
+        os.utime(inpath, (1, 1))
+
+        builder = TestBuilder(self.env, inpath)
+        self.execution.build_targets(builder)
+
+        infile = self.env.file(inpath)
+        outpath = self.root.joinpath("build", "bdir", "foo.txt")
+        outfile = self.env.file(outpath)
+        self.assertEqual(outpath.read_text(), "Version 1")
+
+        # No rebuild here
+        prepared = self.execution.prepare_build(builder)
+        self.assertFalse(prepared.to_build)
+        self.assertEqual(prepared.dependencies[outfile], [infile])
+
+        inpath.write_text("Version 2")
+        # Set the mtime to something later. Just using the default system mtimes isn't
+        # reliable if the tests run too fast
+        os.utime(inpath, (100, 100))
+        prepared = self.execution.prepare_build(builder)
+        self.assertEqual(prepared.to_build, {outfile})
+
+        self.execution.build_targets(prepared_build=prepared)
+        self.assertEqual(outpath.read_text(), "Version 2")
