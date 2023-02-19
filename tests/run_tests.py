@@ -4,7 +4,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import TestCase
 
-from minicons import Builder, Dir, Environment, Execution, File, FileSet, FileSource
+from minicons.builder import Builder
+from minicons.entry import Dir, File
+from minicons.environment import Environment
+from minicons.execution import Execution
+from minicons.types import FileSet, FileSource
 
 
 class MiniconsTests(TestCase):
