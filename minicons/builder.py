@@ -48,7 +48,7 @@ class Builder(ABC, Generic[BuilderType]):
     tracking to work correctly.
     """
 
-    def __init__(self, env: "Environment"):
+    def __init__(self, env: "Environment", target: BuilderType):
         self.env = env
 
         # Which other entries this builder depends on
@@ -56,9 +56,31 @@ class Builder(ABC, Generic[BuilderType]):
         # all of this builder's output (target) entries depend on each entry in this list.
         self.depends: List["Entry"] = []
 
-        # List of items this builder builds. It is populated automatically by the results
-        # from get_targets() and any calls to side_effects()
+        # List of items this builder builds. It is populated by the target(s) passed in,
+        # but may be added to by calling side_effects()
         self.builds: List["Entry"] = []
+
+        # Register the target(s) as being built by this builder
+        self.target: BuilderType = target
+        if isinstance(target, (File, Dir)):
+            self.builds.append(target)
+            target.builder = self
+        elif isinstance(target, Iterable):
+            file: File
+            for file in target:
+                if not isinstance(file, File):
+                    raise ValueError(
+                        "Builder target passed a non-File in with the FileSet"
+                    )
+                file.builder = self
+                self.builds.append(file)
+        elif isinstance(target, str):
+            raise TypeError(
+                "Cannot pass a string in as a target. Use env.file() on env.dir() to explicitly "
+                "pass a File or Directory object"
+            )
+        else:
+            raise TypeError(f"Invalid target object {target!r}")
 
     def __str__(self) -> str:
         return "{}({})".format(type(self).__name__, " ".join(str(b) for b in self.builds))
@@ -79,27 +101,11 @@ class Builder(ABC, Generic[BuilderType]):
             self.builds.append(entry)
 
     @abstractmethod
-    def get_targets(self) -> BuilderType:
-        """Returns a File, list of Files, or a Directory declaring what this builder outputs.
-
-        The returned items from this method declare what this builder outputs. Generally,
-        builders should output a File or FileSet if they know the files they output at
-        construction time.
-
-        Builders which don't know the files they output until build time should output
-        a directory, and place all their output files in that directory.
-
-        """
-
-    @abstractmethod
-    def build(self, targets: BuilderType) -> None:
+    def build(self) -> None:
         """Called to actually build the targets
 
-        The given targets are the same objects returned previously from get_targets().
-        A Builder implementation may need to keep track of its targets in instance attributes,
-        in which case the targets argument here is redundant. It is provided for
-        convenience.
-
+        The builder is expected to write to the filesystem the target file(s) in self.target,
+        as well as any declared side effect files.
         """
 
     # Shorthand convenience methods on the builder

@@ -17,12 +17,11 @@ from typing import (
     Set,
     Tuple,
     Union,
-    cast,
 )
 
 from minicons.builder import Builder
-from minicons.entry import Dir, Entry, File
-from minicons.types import Args, BuilderTargetType, BuilderType
+from minicons.entry import Entry
+from minicons.types import Args
 
 logger = getLogger("minicons")
 
@@ -53,13 +52,10 @@ class Execution:
         self.root = Path(root).resolve()
         self.aliases: Dict[str, List[Path]] = {}
 
-        # Maps paths to entries. Memoizes calls to file() and dir()
+        # Maps paths to entries. Memoizes calls to file() and dir(), and is used to
+        # lookup and resolve target paths given as strings to entries.
         # Path objects are always absolute
         self.entries: Dict[Path, "Entry"] = {}
-
-        # Builders we have seen and have definitions for, and what files they build
-        # This memoizes the get_targets() method of each builder
-        self.builders: Dict["Builder", BuilderTargetType] = {}
 
         self.metadata_db = sqlite3.connect(
             self.root.joinpath(".minicons.sqlite3"), isolation_level=None
@@ -93,40 +89,6 @@ class Execution:
             (str(path), serialized),
         )
 
-    def _resolve_builder(self, builder: "Builder[BuilderType]") -> BuilderType:
-        """Resolves a builder to its output targets
-
-        Also registers the builder with the environment
-        """
-        try:
-            return cast(BuilderType, self.builders[builder])
-        except KeyError:
-            pass
-        # Register this builder and its targets
-        builder_targets = builder.get_targets()
-
-        if isinstance(builder_targets, (File, Dir)):
-            builder_targets.builder = builder
-            builder.builds.append(builder_targets)
-        elif isinstance(builder_targets, Iterable):
-            file: File
-            for file in builder_targets:
-                if not isinstance(file, File):
-                    raise ValueError(
-                        f"Builder get_target() returned a non-file in its FileSet: {file}"
-                    )
-                file.builder = builder
-                builder.builds.append(file)
-        else:
-            raise ValueError(
-                f"Builder {builder} get_targets() did not return "
-                f"a File, Dir, or collection of Files"
-            )
-
-        self.builders[builder] = builder_targets
-
-        return builder_targets
-
     def _args_to_paths(self, args: Args) -> Iterator[Path]:
         """Resolves a string, path, entry, or builder to Path objects
 
@@ -149,9 +111,9 @@ class Execution:
                 if arg in self.aliases:
                     yield from self._args_to_paths(self.aliases[arg])
                 else:
-                    yield Path.cwd().joinpath(arg)
+                    yield self.root.joinpath(arg)
             elif isinstance(arg, Builder):
-                yield from self._args_to_paths(self._resolve_builder(arg))
+                yield from self._args_to_paths(arg.target)
             elif isinstance(arg, Path):
                 yield arg
             elif isinstance(arg, Iterable):
@@ -298,7 +260,7 @@ class Execution:
         for entry in builder.builds:
             entry.prepare()
 
-        builder.build(self.builders[builder])
+        builder.build()
 
         # check that the outputs were actually created
         for entry in builder.builds:

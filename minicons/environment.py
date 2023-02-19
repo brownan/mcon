@@ -162,7 +162,7 @@ class Environment:
         """
         file: "File"
         if isinstance(source, Builder):
-            file = self.execution._resolve_builder(source)
+            file = source.target
             if not isinstance(file, File):
                 raise ValueError(f"Builder {source} expected to return a single file")
         else:
@@ -184,7 +184,7 @@ class Environment:
 
         """
         if isinstance(sources, Builder):
-            sources = self.execution._resolve_builder(sources)
+            sources = sources.target
             if not isinstance(sources, (File, Dir, Iterable)):
                 raise ValueError("Builder must return a File, Dir, or iterable of Files")
 
@@ -211,7 +211,7 @@ class Environment:
 
         """
         if isinstance(source, Builder):
-            d = self.execution._resolve_builder(source)
+            d = source.target
             if not isinstance(d, Dir):
                 raise ValueError(f"Builder {source} expected to return a directory")
 

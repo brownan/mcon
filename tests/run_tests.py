@@ -28,14 +28,11 @@ class MiniconsTests(TestCase):
     def test_file_builder(self) -> None:
         """Tests a builder which outputs a file"""
 
-        class TestBuilder(Builder):
-            def get_targets(self) -> File:
-                return self.env.file("foo.txt")
+        class TestBuilder(Builder[File]):
+            def build(self) -> None:
+                self.target.path.write_text("Hello, world!")
 
-            def build(self, target: File) -> None:
-                target.path.write_text("Hello, world!")
-
-        builder = TestBuilder(self.env)
+        builder = TestBuilder(self.env, self.env.file("foo.txt"))
 
         self.execution.build_targets(builder)
 
@@ -51,18 +48,18 @@ class MiniconsTests(TestCase):
     def test_files_builder(self) -> None:
         """Tests a builder which outputs multiple files"""
 
-        class TestBuilder(Builder):
-            def get_targets(self) -> FileSet:
-                return [
-                    self.env.file("foo.txt"),
-                    self.env.file("bar.txt"),
-                ]
-
-            def build(self, targets: FileSet) -> None:
-                for i, file in enumerate(targets):
+        class TestBuilder(Builder[FileSet]):
+            def build(self) -> None:
+                for i, file in enumerate(self.target):
                     file.path.write_text(f"File {i}")
 
-        builder = TestBuilder(self.env)
+        builder = TestBuilder(
+            self.env,
+            [
+                self.env.file("foo.txt"),
+                self.env.file("bar.txt"),
+            ],
+        )
         self.execution.build_targets(builder)
         self.assertEqual(
             self.root.joinpath("foo.txt").read_text(),
@@ -76,16 +73,13 @@ class MiniconsTests(TestCase):
     def test_dir_builder(self) -> None:
         """Tests a builder which outputs a directory"""
 
-        class TestBuilder(Builder):
-            def get_targets(self) -> Dir:
-                return self.env.dir("foo")
+        class TestBuilder(Builder[Dir]):
+            def build(self) -> None:
+                self.target.path.mkdir()
+                self.target.path.joinpath("foo.txt").write_text("foo")
+                self.target.path.joinpath("bar.txt").write_text("bar")
 
-            def build(self, target: Dir) -> None:
-                target.path.mkdir()
-                target.path.joinpath("foo.txt").write_text("foo")
-                target.path.joinpath("bar.txt").write_text("bar")
-
-        builder = TestBuilder(self.env)
+        builder = TestBuilder(self.env, self.env.dir("foo"))
         self.execution.build_targets(builder)
         self.assertEqual(self.root.joinpath("foo", "foo.txt").read_text(), "foo")
         self.assertEqual(self.root.joinpath("foo", "bar.txt").read_text(), "bar")
@@ -100,26 +94,26 @@ class MiniconsTests(TestCase):
         """Tests the dependency checker"""
 
         class TestBuilder(Builder[File]):
-            def __init__(self, env: Environment, source: FileSource) -> None:
-                super().__init__(env)
+            def __init__(
+                self, env: Environment, target: File, source: FileSource
+            ) -> None:
+                super().__init__(env, target)
                 self.source = self.depends_file(source)
 
-            def get_targets(self) -> File:
-                return self.source.derive("bdir")
-
-            def build(self, target: File) -> None:
-                target.path.write_text(self.source.path.read_text())
+            def build(self) -> None:
+                self.target.path.write_text(self.source.path.read_text())
 
         inpath = Path(self.root.joinpath("foo.txt"))
+        infile = self.env.file(inpath)
+        outfile = infile.derive("bdir")
+        outpath = outfile.path
+
         inpath.write_text("Version 1")
         os.utime(inpath, (1, 1))
 
-        builder = TestBuilder(self.env, inpath)
+        builder = TestBuilder(self.env, outfile, inpath)
         self.execution.build_targets(builder)
 
-        infile = self.env.file(inpath)
-        outpath = self.root.joinpath("build", "bdir", "foo.txt")
-        outfile = self.env.file(outpath)
         self.assertEqual(outpath.read_text(), "Version 1")
 
         # No rebuild here
