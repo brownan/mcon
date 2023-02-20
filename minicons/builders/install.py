@@ -1,9 +1,10 @@
 import shutil
 
-from minicons import Builder, Environment, File
+from minicons import Environment, File
+from minicons.builder import SingleFileBuilder
 
 
-class Install(Builder[File]):
+class Install(SingleFileBuilder):
     def __init__(self, env: Environment, target: File, source: File):
         super().__init__(env, target)
         self.source = self.depends_file(source)
