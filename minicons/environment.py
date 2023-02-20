@@ -1,10 +1,9 @@
 from pathlib import Path
-from typing import Any, Iterable, Optional, Type, Union
+from typing import Optional, Type, Union
 
-from minicons.builder import Builder
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
-from minicons.types import DirSource, E, FileSet, FileSource, FilesSource
+from minicons.types import E
 
 
 class Environment:
@@ -153,70 +152,3 @@ class Environment:
         if new_ext is not None:
             full_path = full_path.with_suffix(new_ext)
         return full_path
-
-    def depends_file(self, target: "Builder[Any]", source: FileSource) -> "File":
-        """Register the given source as a dependency of the given builder
-
-        Resolves the given source object and returns a File object
-
-        """
-        file: "File"
-        if isinstance(source, Builder):
-            file = source.target
-            if not isinstance(file, File):
-                raise ValueError(f"Builder {source} expected to return a single file")
-        else:
-            file = self.file(source)
-
-        target.depends.append(file)
-        return file
-
-    def depends_files(
-        self,
-        target: "Builder[Any]",
-        sources: FilesSource,
-    ) -> "FileSet":
-        """Register the given source(s) as dependencies of the given builder
-
-        Resolves the given source(s) and returns a Collection of File objects.
-        This is typically either a list of Files or a Dir, but the returned objects are
-        not guaranteed to be exactly those types.
-
-        """
-        if isinstance(sources, Builder):
-            sources = sources.target
-            if not isinstance(sources, (File, Dir, Iterable)):
-                raise ValueError("Builder must return a File, Dir, or iterable of Files")
-
-        if isinstance(sources, Dir):
-            target.depends.append(sources)
-            return sources
-        elif isinstance(sources, File):
-            target.depends.append(sources)
-            return [sources]
-        elif isinstance(sources, str):
-            file = self.file(sources)
-            target.depends.append(file)
-            return [file]
-        elif isinstance(sources, Iterable):
-            # Iterable of files or strings
-            files = [self.file(s) for s in sources]
-            target.depends.extend(files)
-            return files
-
-    def depends_dir(self, target: "Builder[Any]", source: DirSource) -> "Dir":
-        """Register the given source as a dependency of the given target builder
-
-        This is specifically when the caller is expecting a directory.
-
-        """
-        if isinstance(source, Builder):
-            d = source.target
-            if not isinstance(d, Dir):
-                raise ValueError(f"Builder {source} expected to return a directory")
-
-        else:
-            d = self.dir(source)
-
-        target.depends.append(d)
-        return d

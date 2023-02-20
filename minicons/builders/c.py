@@ -1,48 +1,91 @@
-import shlex
+import dataclasses
 import subprocess
-from typing import Iterable, List, Optional, Union
+from typing import Collection, Sequence
 
-from minicons import Builder, Environment, File, FilesSource
+from minicons import Environment, File, FilesSource
+from minicons.builder import SingleFileBuilder
 
 
-class SharedLibrary(Builder[File]):
+@dataclasses.dataclass
+class CompilerConfig:
+    # C compiler
+    cc: str = "cc"
+
+    # C++ compiler
+    cxx: str = "c++"
+
+    # C compiler flags
+    cflags: Sequence[str] = ()
+
+    # CXX compiler flags
+    cxxflags: Sequence[str] = ()
+
+    # Flags common to both C and C++
+    cppflags: Sequence[str] = ()
+
+    # Object linker
+    ld: str = "cc"
+
+    # Linking flags
+    ldflags: Sequence[str] = ()
+
+    # Include directories
+    include_dirs: Collection[str] = ()
+    lib_dirs: Collection[str] = ()
+
+
+class CompiledObject(SingleFileBuilder):
     def __init__(
         self,
         env: Environment,
         target: File,
         sources: FilesSource,
-        cc: str = "cc",
-        cflags: Union[str, Iterable[str], None] = None,
-        include_dirs: Optional[Iterable[str]] = None,
-        lib_dirs: Optional[Iterable[str]] = None,
+        compiler_config: CompilerConfig,
     ):
         super().__init__(env, target)
         self.sources = self.depends_files(sources)
-        self.cc: str = cc
-        self.cflags: List[str]
-        if isinstance(cflags, str):
-            self.cflags = shlex.split(cflags)
-        elif cflags is None:
-            self.cflags = []
-        else:
-            self.cflags = list(cflags)
-        self.include_dirs = list(include_dirs) if include_dirs else []
-        self.lib_dirs = list(lib_dirs) if lib_dirs else []
+        self.compiler_config = compiler_config
+
+    def build(self) -> None:
+        conf = self.compiler_config
+        cmdline = [
+            conf.cc,
+            "-c",
+            "-o",
+            str(self.target.path),
+        ]
+        cmdline += conf.cppflags
+        cmdline += conf.cflags
+        for incdir in conf.include_dirs:
+            cmdline.extend(["-I", incdir])
+        cmdline.extend(str(s.path) for s in self.sources)
+        subprocess.check_call(cmdline)
+
+
+class SharedLibrary(SingleFileBuilder):
+    def __init__(
+        self,
+        env: Environment,
+        target: File,
+        sources: FilesSource,
+        compiler_config: CompilerConfig,
+    ):
+        super().__init__(env, target)
+        self.sources = self.depends_files(sources)
+        self.compiler_config = compiler_config
 
     def get_targets(self) -> File:
         return self.target
 
     def build(self) -> None:
+        conf = self.compiler_config
         cmdline = [
-            self.cc,
-            "-shared",
+            conf.cc,
             "-o",
             str(self.target.path),
         ]
-        for incdir in self.include_dirs:
-            cmdline.extend(["-I", incdir])
-        for libdir in self.lib_dirs:
+        cmdline += conf.ldflags
+        for libdir in conf.lib_dirs:
             cmdline.extend(["-L", libdir])
-        cmdline.extend(self.cflags)
         cmdline.extend(str(s.path) for s in self.sources)
         subprocess.check_call(cmdline)

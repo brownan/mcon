@@ -4,12 +4,12 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import TestCase
 
-from minicons.builder import Builder
-from minicons.builders.c import SharedLibrary
-from minicons.entry import Dir, File
+from minicons.builder import DirBuilder, MultipleFilesBuilder, SingleFileBuilder
+from minicons.builders.c import CompilerConfig, SharedLibrary
+from minicons.entry import File
 from minicons.environment import Environment
 from minicons.execution import Execution
-from minicons.types import FileSet, FileSource
+from minicons.types import FileSource
 
 
 class Common(TestCase):
@@ -31,7 +31,7 @@ class MiniconsTests(Common):
     def test_file_builder(self) -> None:
         """Tests a builder which outputs a file"""
 
-        class TestBuilder(Builder[File]):
+        class TestBuilder(SingleFileBuilder):
             def build(self) -> None:
                 self.target.path.write_text("Hello, world!")
 
@@ -51,7 +51,7 @@ class MiniconsTests(Common):
     def test_files_builder(self) -> None:
         """Tests a builder which outputs multiple files"""
 
-        class TestBuilder(Builder[FileSet]):
+        class TestBuilder(MultipleFilesBuilder):
             def build(self) -> None:
                 for i, file in enumerate(self.target):
                     file.path.write_text(f"File {i}")
@@ -76,7 +76,7 @@ class MiniconsTests(Common):
     def test_dir_builder(self) -> None:
         """Tests a builder which outputs a directory"""
 
-        class TestBuilder(Builder[Dir]):
+        class TestBuilder(DirBuilder):
             def build(self) -> None:
                 self.target.path.mkdir()
                 self.target.path.joinpath("foo.txt").write_text("foo")
@@ -96,7 +96,7 @@ class MiniconsTests(Common):
     def test_file_dependency(self) -> None:
         """Tests the dependency checker"""
 
-        class TestBuilder(Builder[File]):
+        class TestBuilder(SingleFileBuilder):
             def __init__(
                 self, env: Environment, target: File, source: FileSource
             ) -> None:
@@ -148,6 +148,6 @@ void main() {
         """
         )
         target = infile.derive("lib", ".so")
-        builder = SharedLibrary(self.env, target, infile)
+        builder = SharedLibrary(self.env, target, infile, CompilerConfig())
         self.execution.build_targets(builder)
         self.assertTrue(target.path.exists())

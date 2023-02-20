@@ -28,6 +28,9 @@ class Entry(ABC):
         # Explicit list of additional other entries this one depends on
         self.depends: List["Entry"] = []
 
+        # Flag to show whether this entry has been built yet
+        self.built: bool = False
+
     def __hash__(self) -> int:
         return hash(self.path)
 
@@ -89,6 +92,8 @@ class Dir(Entry, Collection["File"]):
         self.glob_pattern = glob
 
     def __iter__(self) -> Iterator["File"]:
+        if not self.built:
+            raise RuntimeError("Cannot iterate over directory before it's built")
         for path in self.path.glob(self.glob_pattern):
             if path.is_file():
                 yield self.env.file(path)

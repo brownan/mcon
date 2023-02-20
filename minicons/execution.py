@@ -21,7 +21,7 @@ from typing import (
 
 from minicons.builder import Builder
 from minicons.entry import Entry
-from minicons.types import Args
+from minicons.types import Args, SourceLike
 
 logger = getLogger("minicons")
 
@@ -112,7 +112,7 @@ class Execution:
                     yield from self._args_to_paths(self.aliases[arg])
                 else:
                     yield self.root.joinpath(arg)
-            elif isinstance(arg, Builder):
+            elif isinstance(arg, SourceLike):
                 yield from self._args_to_paths(arg.target)
             elif isinstance(arg, Path):
                 yield arg
@@ -139,6 +139,9 @@ class Execution:
             target_entries: List["Entry"] = [self.entries[p] for p in target_paths]
         except KeyError as e:
             raise DependencyError(f"Target not found: {e}") from e
+
+        for entry in target_entries:
+            entry.built = False
 
         # Traverse the graph of entry dependencies to get all entries relevant to this build
         # The dependency mapping returned contains not only the explicitly defined
@@ -266,6 +269,7 @@ class Execution:
         for entry in builder.builds:
             if not entry.path.exists():
                 raise DependencyError(f"Builder {builder} didn't output {entry}")
+            entry.built = True
 
 
 def _traverse_entry_graph(
