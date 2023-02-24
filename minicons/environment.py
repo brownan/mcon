@@ -1,15 +1,17 @@
 from pathlib import Path
-from typing import Optional, Type, Union
+from typing import Optional, Union
 
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
-from minicons.types import E
 
 
 class Environment:
     """An Environment object controls the context in which Builders live
 
-    An Environment exists to define the root directory and build directory for Builders.
+    An Environment exists to define the root directory and build directory for Builders
+    attached to that environment. File and Dir objects created within the environment
+    will resolve their paths relative to the environment's root.
+
     Multiple Environments can exist within a single Execution, meaning Builders will use
     the root and build directories attached to their respective environments.
 
@@ -35,34 +37,13 @@ class Environment:
         self.root = root or self.execution.root
         self.build_root = build_root or self.root.joinpath("build")
 
-    def create_entry(
-        self,
-        path: Union[str, Path],
-        factory: Type[E],
-    ) -> E:
-        # Make sure path is always absolute
-        # Interpret relative to root
-        path = self.root.joinpath(path)
-
-        try:
-            entry = self.execution.entries[path]
-            if not isinstance(entry, factory):
-                raise TypeError(f"Path {path} already exists but is the wrong type")
-            return entry
-        except KeyError:
-            pass
-
-        entry = factory(self, path)
-        self.execution.entries[path] = entry
-        return entry
-
     def file(
         self,
         path: Union[str, Path, "File"],
     ) -> "File":
         if isinstance(path, File):
             return path
-        return self.create_entry(path, File)
+        return File(self, path)
 
     def dir(
         self,
@@ -70,10 +51,7 @@ class Environment:
     ) -> "Dir":
         if isinstance(path, Dir):
             return path
-        return self.create_entry(
-            path,
-            Dir,
-        )
+        return Dir(self, path)
 
     def get_rel_path(self, src: Union[str, Path]) -> str:
         """Returns the path to the given source file relative to either the environment's

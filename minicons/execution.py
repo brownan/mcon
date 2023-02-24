@@ -20,8 +20,8 @@ from typing import (
 )
 
 from minicons.builder import Builder
-from minicons.entry import Entry
-from minicons.types import Args, SourceLike
+from minicons.entry import Entry, Node
+from minicons.types import Args
 
 logger = getLogger("minicons")
 
@@ -32,10 +32,11 @@ class DependencyError(Exception):
 
 @dataclasses.dataclass
 class PreparedBuild:
-    ordered_entries: Sequence["Entry"]
-    dependencies: Mapping["Entry", Collection["Entry"]]
-    out_of_date: Collection["Entry"]
-    to_build: Collection["Entry"]
+    ordered_nodes: Sequence[Node]
+    dependencies: Mapping[Node, Collection[Node]]
+    out_of_date: Collection[Entry]
+    to_build: Collection[Node]
+    metadata: Mapping[Entry, Any]
 
 
 class Execution:
@@ -50,7 +51,7 @@ class Execution:
 
     def __init__(self, root: Union[str, Path]) -> None:
         self.root = Path(root).resolve()
-        self.aliases: Dict[str, List[Path]] = {}
+        self.aliases: Dict[str, List[Node]] = {}
 
         # Maps paths to entries. Memoizes calls to file() and dir(), and is used to
         # lookup and resolve target paths given as strings to entries.
@@ -89,42 +90,36 @@ class Execution:
             (str(path), serialized),
         )
 
-    def _args_to_paths(self, args: Args) -> Iterator[Path]:
-        """Resolves a string, path, entry, or builder to Path objects
+    def _args_to_nodes(self, args: Args) -> Iterator[Node]:
+        """Resolves a string, path, Node, or SourceLike to Node objects
 
-        Items may also be a list, possibly nested.
+        Items may also be an Iterable, possibly nested.
 
         Strings are interpreted as aliases if an alias exists, otherwise it is taken to
         be a path relative to the current working directory.
 
         """
-        list_of_args: List[Args]
-        if isinstance(args, (Path, Entry, Builder, str)):
-            list_of_args = [args]
-        else:
-            list_of_args = list(args)
-
-        for arg in list_of_args:
-            if isinstance(arg, Entry):
-                yield arg.path
-            elif isinstance(arg, str):
-                if arg in self.aliases:
-                    yield from self._args_to_paths(self.aliases[arg])
-                else:
-                    yield self.root.joinpath(arg)
-            elif isinstance(arg, SourceLike):
-                yield from self._args_to_paths(arg.target)
-            elif isinstance(arg, Path):
-                yield arg
-            elif isinstance(arg, Iterable):
-                # Flatten the list
-                yield from self._args_to_paths(arg)
+        if isinstance(args, Path):
+            yield self.entries[args]
+        elif isinstance(args, Node):
+            yield args
+        elif isinstance(args, str):
+            # try interpreting this as an alias first, then as a path
+            if args in self.aliases:
+                yield from self._args_to_nodes(self.aliases[args])
             else:
-                raise TypeError(f"Unknown argument type {arg}")
+                yield self.entries[self.root.joinpath(args)]
+        elif hasattr(args, "target"):
+            yield from self._args_to_nodes(args.target)
+        elif isinstance(args, Iterable):
+            for item in args:
+                yield from self._args_to_nodes(item)
+        else:
+            raise TypeError(f"Unknown arg type {args!r}")
 
     def register_alias(self, alias: str, entries: Args) -> None:
-        paths = list(self._args_to_paths(entries))
-        self.aliases[alias] = paths
+        nodes = list(self._args_to_nodes(entries))
+        self.aliases[alias] = nodes
 
     def prepare_build(self, targets: Args) -> PreparedBuild:
         """Prepare to build the given targets
@@ -132,68 +127,79 @@ class Execution:
         This builds the final dependency graph and the set of out of date nodes
         """
         # Resolve all targets to paths
-        target_paths: List[Path] = list(self._args_to_paths(targets))
-
-        # Resolve all paths to Entries
-        try:
-            target_entries: List["Entry"] = [self.entries[p] for p in target_paths]
-        except KeyError as e:
-            raise DependencyError(f"Target not found: {e}") from e
-
-        for entry in target_entries:
-            entry.built = False
+        target_nodes: List[Node] = list(self._args_to_nodes(targets))
 
         # Traverse the graph of entry dependencies to get all entries relevant to this build
         # The dependency mapping returned contains not only the explicitly defined
         # entry->entry dependencies in Entry.depends, but also the dependencies
         # implied by the entry's builder's dependencies.
-        all_entries, dependencies = _traverse_entry_graph(target_entries)
+        all_nodes, dependencies = _traverse_node_graph(target_nodes)
 
         # Get the topological ordering of the entries
-        ordered_entries = _sort_dag(all_entries, dependencies)
+        ordered_nodes: Sequence[Node] = _sort_dag(all_nodes, dependencies)
 
-        # Scan all entries to determine which are out of date
-        out_of_date_entries: Set["Entry"] = set()
-        for entry in ordered_entries:
-            if not entry.builder:
-                # Leaf nodes are files which don't have a builder and cannot be built.
-                # Keep in mind that a file itself cannot be "out of date". A file is
-                # only out of date with respect to a its dependencies, and a file
-                # in isolation may be used by multiple builders. Since it has no builder
-                # itself, we cannot add it to out_of_date_entries because we cannot take any
-                # action to make that file "up to date".
-                continue
-            elif not entry.path.exists():
-                # Always build if it doesn't actually exist
-                out_of_date_entries.add(entry)
-            elif not dependencies[entry]:
-                # This entry has no dependencies, meaning there are no explicitly defined
-                # dependencies and its builder doesn't have any dependencies.
-                # How do we know if this file needs building? In the absence of external
-                # information, we don't. In the future we should have a way to specify
-                # "always build" on a file or builder, but for now we assume if the file
-                # exists, it's good.
-                pass
-            else:
-                # Check if any of its dependencies have changed by comparing the
-                # metadata signature to the saved signature
-                old_metadata = self._get_metadata(entry.path)
-                new_metadata = self._build_entry_metadata(entry, dependencies)
+        # Maps nodes to other nodes which depend on them
+        reverse_dependencies: Dict[Node, Set[Node]] = {}
+        for node, deps in dependencies.items():
+            for dep in deps:
+                reverse_dependencies[dep].add(node)
+
+        # Entry nodes are nodes with a statically defined filesystem path known before
+        # calling its builder.
+        entry_nodes: Set[Entry] = {node for node in all_nodes if isinstance(node, Entry)}
+
+        # get metadata on all Entry nodes
+        metadata: Dict[Entry, Any] = {}
+        for node in entry_nodes:
+            if node.builder is None and not node.path.exists():
+                raise DependencyError(
+                    f"Path {node} required but not present on filesystem"
+                )
+            metadata[node] = node.get_metadata()
+
+        # Gather and compare metadata for entry nodes to see if they are outdated
+        # according to all Entries they depend on (anywhere in the ancestry tree)
+        outdated: Set[Entry] = set()
+        for node in all_nodes:
+            if isinstance(node, Entry):
+                old_metadata = self._get_metadata(node.path)
+                new_metadata = self._build_entry_metadata(
+                    node,
+                    dependencies,
+                    metadata,
+                )
+
                 if old_metadata != new_metadata:
-                    out_of_date_entries.add(entry)
+                    outdated.add(node)
 
-        # Build a complete set of all entries that need building: out of date entries plus all
-        # dependent entries
-        to_build = set(out_of_date_entries)
-        for entry in ordered_entries:
-            if any(e in to_build for e in dependencies[entry]):
-                to_build.add(entry)
+        # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
+        # rebuilt. While such nodes are usually also detected as outdated above, they may
+        # not be in the case of an interrupted build where e.g. one dependent node
+        # got built but not another. But we don't assume a builder is purely functional,
+        # so if a builder runs, we run all descendent builders.
+        to_build: Set[Node] = set(outdated)
+        for node in ordered_nodes:
+            if any(d in to_build for d in dependencies[node]):
+                to_build.add(node)
+
+        # Nodes which depend on a non-Entry node require that dependent node to be rebuilt.
+        # This is because a non-Entry node's contents are not defined until its builder
+        # builds it. For example, a FileSet is used to contain a set of files not known
+        # statically. So its builder must build it before it can be used by a downstream
+        # dependent builder.
+        # Traverse the graph /upward/ so that nodes depending on other nodes propagate
+        # correctly. (A FileSet whose builder depends on another FileSet requires
+        # both to be built)
+        for node in reversed(ordered_nodes):
+            if any(d not in entry_nodes for d in dependencies[node]):
+                to_build.add(node)
 
         return PreparedBuild(
-            ordered_entries=ordered_entries,
-            out_of_date=out_of_date_entries,
+            ordered_nodes=ordered_nodes,
+            out_of_date=outdated,
             to_build=to_build,
             dependencies=dependencies,
+            metadata=metadata,
         )
 
     def build_targets(
@@ -216,7 +222,7 @@ class Execution:
         elif targets is not None:
             raise ValueError("Targets and prepared_build cannot be specified together")
 
-        ordered_entries = prepared_build.ordered_entries
+        ordered_nodes = prepared_build.ordered_nodes
         out_of_date_entries = prepared_build.out_of_date
         dependencies = prepared_build.dependencies
         to_build = prepared_build.to_build
@@ -226,42 +232,59 @@ class Execution:
             return
 
         # Build
-        built_entries: Set["Entry"] = set()
-        for entry in ordered_entries:
-            if entry in to_build and entry not in built_entries:
-                # Only entries which have a builder have been added to the out-of-date set
-                assert entry.builder
-
-                logger.info("Building %s", entry.builder)
+        built_nodes: Set[Node] = set()
+        new_metadata: Dict[Entry, Any] = dict(prepared_build.metadata)
+        for node in ordered_nodes:
+            if node in to_build and node not in built_nodes and node.builder is not None:
+                builder = node.builder
+                logger.info("Building %s", builder)
                 if not dry_run:
-                    self._call_builder(entry.builder)
-                    built_entries.update(entry.builder.builds)
-                    # Save metadata for this entry
-                    for built_entry in entry.builder.builds:
-                        new_metadata = self._build_entry_metadata(
-                            built_entry, dependencies
-                        )
-                        self._set_metadata(built_entry.path, new_metadata)
+                    self._call_builder(builder)
+                    built_nodes.update(builder.builds)
+
+                    for built_entry in builder.builds:
+                        if isinstance(built_entry, Entry):
+                            # Update the metadata dict of each entry's metadata for the newly
+                            # built file
+                            new_metadata[built_entry] = built_entry.get_metadata()
+
+                            # Now update this entry's cached metadata of all its dependencies
+                            self._set_metadata(
+                                built_entry.path,
+                                self._build_entry_metadata(
+                                    built_entry,
+                                    dependencies,
+                                    new_metadata,
+                                ),
+                            )
 
     def _build_entry_metadata(
-        self, entry: "Entry", dependencies: Mapping["Entry", Collection["Entry"]]
-    ) -> Any:
-        # An entry's metadata is used to compare whether it needs to be rebuilt. It encodes
-        # the signatures of all entries it depends on.
-        dep_metadata: Dict[str, Any] = {}
-        for dep in dependencies[entry]:
-            dep_metadata[str(dep.path)] = dep.get_metadata()
-        return {
-            "dependencies": dep_metadata,
-        }
+        self,
+        entry: "Entry",
+        dependencies: Mapping[Node, Collection[Node]],
+        metadata: Mapping[Entry, Any],
+    ) -> Dict[str, Any]:
+        node_metadata: Dict[str, Any] = {"deps": {}}
+
+        # Simple graph traversal to find all ancestor leaf nodes
+        to_visit: List[Node] = list(dependencies[entry])
+        while to_visit:
+            v = to_visit.pop()
+            if v in metadata:
+                assert isinstance(v, Entry)
+                node_metadata["deps"][str(v.path)] = metadata[v]
+            to_visit.extend(dependencies[v])
+        return node_metadata
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
         # First remove its entries and prepare them:
         for entry in builder.builds:
-            entry.remove()
+            if isinstance(entry, Entry):
+                entry.remove()
         for entry in builder.builds:
-            entry.prepare()
+            if isinstance(entry, Entry):
+                entry.prepare()
 
         builder.build()
 
@@ -269,23 +292,22 @@ class Execution:
         for entry in builder.builds:
             if not entry.path.exists():
                 raise DependencyError(f"Builder {builder} didn't output {entry}")
-            entry.built = True
 
 
-def _traverse_entry_graph(
-    targets: List["Entry"],
-) -> Tuple[List["Entry"], Dict["Entry", List["Entry"]]]:
-    """Given one or more target entries, traverse the graph of dependencies
-    and return all reachable entries, as well as a mapping of dependency relations.
+def _traverse_node_graph(
+    targets: List["Node"],
+) -> Tuple[List["Node"], Dict["Node", List["Node"]]]:
+    """Given one or more target nodes, traverse the graph of dependencies
+    and return all reachable nodes, as well as a mapping of dependency relations.
 
     """
-    reachable_entries: List["Entry"] = []
-    edges: Dict["Entry", List["Entry"]] = defaultdict(list)
+    reachable_entries: List["Node"] = []
+    edges: Dict["Node", List["Node"]] = defaultdict(list)
 
-    seen: Set[Entry] = set()
+    seen: Set[Node] = set()
     to_visit = list(targets)
     while to_visit:
-        visiting: Entry = to_visit.pop()
+        visiting: Node = to_visit.pop()
         reachable_entries.append(visiting)
         seen.add(visiting)
 
@@ -301,9 +323,9 @@ def _traverse_entry_graph(
 
 
 def _sort_dag(
-    nodes: Collection["Entry"], edges_orig: Mapping["Entry", Iterable["Entry"]]
-) -> List["Entry"]:
-    """Given a set of entries and a mapping describing the edges, returns a topological
+    nodes: Collection["Node"], edges_orig: Mapping["Node", Iterable["Node"]]
+) -> List["Node"]:
+    """Given a set of nodes and a mapping describing the edges, returns a topological
     sort starting at the leaf nodes.
 
     Given edges are dependencies, so the topological sort is actually of the graph with
@@ -311,18 +333,18 @@ def _sort_dag(
 
     """
     # Copy the edges since we'll be mutating it
-    edges: Dict["Entry", Set["Entry"]]
+    edges: Dict["Node", Set["Node"]]
     edges = defaultdict(set, ((e, set(deps)) for e, deps in edges_orig.items()))
 
     # Create the reverse edges, or reverse dependencies (maps dependent nodes onto the
     # set of nodes that depend on it)
-    reverse_edges: Dict["Entry", Set["Entry"]] = defaultdict(set)
+    reverse_edges: Dict["Node", Set["Node"]] = defaultdict(set)
     for e, deps in edges.items():
         for dep in deps:
             reverse_edges[dep].add(e)
 
-    sorted_nodes: List[Entry] = []
-    leaf_nodes: List["Entry"] = [n for n in nodes if not edges.get(n)]
+    sorted_nodes: List[Node] = []
+    leaf_nodes: List[Node] = [n for n in nodes if not edges.get(n)]
 
     while leaf_nodes:
         node = leaf_nodes.pop()
