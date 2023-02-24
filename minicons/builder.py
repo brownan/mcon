@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Union
+from typing import TYPE_CHECKING, Iterable, List, TypeVar
 
-from minicons.entry import Dir, Entry, File, FileSet, Node
-from minicons.types import DirSource, E, FileSource, FilesSource, SourceLike
+from minicons.entry import Dir, File, FileSet, Node
+from minicons.types import DirSource, FileArg, FileSource, FilesSource
 
 if TYPE_CHECKING:
     from minicons.environment import Environment
+
+N = TypeVar("N", bound=Node)
 
 
 class Builder(ABC):
@@ -44,7 +45,7 @@ class Builder(ABC):
         self.depends: List[Node] = []
 
         # List of items this builder builds.
-        self.builds: List[Entry] = []
+        self.builds: List[Node] = []
 
     def __str__(self) -> str:
         return "{}({})".format(type(self).__name__, " ".join(str(b) for b in self.builds))
@@ -58,21 +59,21 @@ class Builder(ABC):
         """
         raise NotImplementedError
 
-    def register_target(self, entry: E) -> E:
+    def register_target(self, node: N) -> N:
         """Registers entries as outputs of the current builder
 
         Builders should call this to declare additional files they output.
 
         """
-        if entry.builder and entry.builder is not self:
-            raise ValueError(f"{entry} is already being built by {entry.builder}")
-        entry.builder = self
-        self.builds.append(entry)
-        return entry
+        if node.builder and node.builder is not self:
+            raise ValueError(f"{node} is already being built by {node.builder}")
+        node.builder = self
+        self.builds.append(node)
+        return node
 
     def depends_file(self, source: FileSource) -> File:
         """Resolves and registers the given source as a dependency of this builder"""
-        if isinstance(source, SourceLike):
+        if hasattr(source, "target"):
             if not isinstance(source.target, File):
                 raise TypeError(f"Wrong target type {source!r}")
             file = source.target
@@ -108,7 +109,7 @@ class Builder(ABC):
 
     def depends_dir(self, source: DirSource) -> "Dir":
         """Resolves and registers the given Dir as a dependency of this builder"""
-        if isinstance(source, SourceLike):
+        if hasattr(source, "target"):
             if not isinstance(source.target, Dir):
                 raise TypeError(f"Wrong target type: {source!r}")
             d = source.target
@@ -120,11 +121,6 @@ class Builder(ABC):
 
 # Below are some convenience subclasses for common builder patterns
 class SingleFileBuilder(Builder, ABC):
-    def __init__(self, env: Environment, target: Union[File, Path, str]):
+    def __init__(self, env: Environment, target: FileArg):
         super().__init__(env)
-        self.target: File
-        if isinstance(target, (str, Path)):
-            self.target = self.env.file(target)
-        else:
-            self.target = target
-        self.register_target(self.target)
+        self.target: File = self.register_target(env.file(target))

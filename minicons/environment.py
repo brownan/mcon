@@ -3,6 +3,7 @@ from typing import Optional, Union
 
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
+from minicons.types import DirArg, FileArg
 
 
 class Environment:
@@ -39,7 +40,7 @@ class Environment:
 
     def file(
         self,
-        path: Union[str, Path, "File"],
+        path: FileArg,
     ) -> "File":
         if isinstance(path, File):
             return path
@@ -47,7 +48,7 @@ class Environment:
 
     def dir(
         self,
-        path: Union[str, Path, "Dir"],
+        path: DirArg,
     ) -> "Dir":
         if isinstance(path, Dir):
             return path

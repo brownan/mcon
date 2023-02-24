@@ -33,10 +33,10 @@ class DependencyError(Exception):
 @dataclasses.dataclass
 class PreparedBuild:
     ordered_nodes: Sequence[Node]
-    dependencies: Mapping[Node, Collection[Node]]
+    edges: Mapping[Node, Collection[Node]]
     out_of_date: Collection[Entry]
     to_build: Collection[Node]
-    metadata: Mapping[Entry, Any]
+    entry_dependencies: Mapping[Node, Collection[Entry]]
 
 
 class Execution:
@@ -69,7 +69,7 @@ class Execution:
             """
         )
 
-    def _get_metadata(self, path: Path) -> Dict[str, Any]:
+    def _get_metadata(self, path: Path) -> Optional[Dict[str, Any]]:
         cursor = self.metadata_db.execute(
             """
         SELECT metadata FROM file_metadata WHERE path=?
@@ -78,7 +78,7 @@ class Execution:
         )
         row = cursor.fetchone()
         if not row:
-            return {}
+            return None
         return json.loads(row[0])
 
     def _set_metadata(self, path: Path, metadata: Dict[str, Any]) -> None:
@@ -133,42 +133,44 @@ class Execution:
         # The dependency mapping returned contains not only the explicitly defined
         # entry->entry dependencies in Entry.depends, but also the dependencies
         # implied by the entry's builder's dependencies.
-        all_nodes, dependencies = _traverse_node_graph(target_nodes)
+        all_nodes, edges = _traverse_node_graph(target_nodes)
 
         # Get the topological ordering of the entries
-        ordered_nodes: Sequence[Node] = _sort_dag(all_nodes, dependencies)
-
-        # Maps nodes to other nodes which depend on them
-        reverse_dependencies: Dict[Node, Set[Node]] = {}
-        for node, deps in dependencies.items():
-            for dep in deps:
-                reverse_dependencies[dep].add(node)
+        ordered_nodes: Sequence[Node] = _sort_dag(all_nodes, edges)
 
         # Entry nodes are nodes with a statically defined filesystem path known before
         # calling its builder.
         entry_nodes: Set[Entry] = {node for node in all_nodes if isinstance(node, Entry)}
 
-        # get metadata on all Entry nodes
+        # Build a mapping of nodes to a collection of Entries that, if changed, would
+        # trigger a rebuild of this node
+        entry_dependencies: Dict[Node, Set[Entry]] = {}
+        for node in all_nodes:
+            entry_dependencies[node] = set()
+            to_visit = list(edges[node])
+            while to_visit:
+                v = to_visit.pop()
+                if isinstance(v, Entry):
+                    entry_dependencies[node].add(v)
+                to_visit.extend(edges[v])
+
+        # get metadata on all Entry nodes. This is the metadata of each node with which
+        # we'll compare to the cache to determine what needs rebuilding.
         metadata: Dict[Entry, Any] = {}
-        for node in entry_nodes:
-            if node.builder is None and not node.path.exists():
+        for entry in entry_nodes:
+            if entry.builder is None and not entry.path.exists():
                 raise DependencyError(
-                    f"Path {node} required but not present on filesystem"
+                    f"Path {entry} required but not present on filesystem"
                 )
-            metadata[node] = node.get_metadata()
+            metadata[entry] = entry.get_metadata()
 
         # Gather and compare metadata for entry nodes to see if they are outdated
-        # according to all Entries they depend on (anywhere in the ancestry tree)
+        # according to all Entries they depend on (anywhere in their ancestry tree)
         outdated: Set[Entry] = set()
         for node in all_nodes:
-            if isinstance(node, Entry):
+            if isinstance(node, Entry) and entry_dependencies[node]:
                 old_metadata = self._get_metadata(node.path)
-                new_metadata = self._build_entry_metadata(
-                    node,
-                    dependencies,
-                    metadata,
-                )
-
+                new_metadata = self._build_metadata(node, metadata, entry_dependencies)
                 if old_metadata != new_metadata:
                     outdated.add(node)
 
@@ -179,7 +181,7 @@ class Execution:
         # so if a builder runs, we run all descendent builders.
         to_build: Set[Node] = set(outdated)
         for node in ordered_nodes:
-            if any(d in to_build for d in dependencies[node]):
+            if any(d in to_build for d in edges[node]):
                 to_build.add(node)
 
         # Nodes which depend on a non-Entry node require that dependent node to be rebuilt.
@@ -191,15 +193,15 @@ class Execution:
         # correctly. (A FileSet whose builder depends on another FileSet requires
         # both to be built)
         for node in reversed(ordered_nodes):
-            if any(d not in entry_nodes for d in dependencies[node]):
+            if any(d not in entry_nodes for d in edges[node]):
                 to_build.add(node)
 
         return PreparedBuild(
             ordered_nodes=ordered_nodes,
             out_of_date=outdated,
             to_build=to_build,
-            dependencies=dependencies,
-            metadata=metadata,
+            edges=edges,
+            entry_dependencies=entry_dependencies,
         )
 
     def build_targets(
@@ -224,7 +226,7 @@ class Execution:
 
         ordered_nodes = prepared_build.ordered_nodes
         out_of_date_entries = prepared_build.out_of_date
-        dependencies = prepared_build.dependencies
+        entry_dependencies = prepared_build.entry_dependencies
         to_build = prepared_build.to_build
 
         if not out_of_date_entries:
@@ -233,7 +235,7 @@ class Execution:
 
         # Build
         built_nodes: Set[Node] = set()
-        new_metadata: Dict[Entry, Any] = dict(prepared_build.metadata)
+        metadata_cache: Dict[Entry, Any] = {}
         for node in ordered_nodes:
             if node in to_build and node not in built_nodes and node.builder is not None:
                 builder = node.builder
@@ -244,37 +246,28 @@ class Execution:
 
                     for built_entry in builder.builds:
                         if isinstance(built_entry, Entry):
-                            # Update the metadata dict of each entry's metadata for the newly
-                            # built file
-                            new_metadata[built_entry] = built_entry.get_metadata()
-
-                            # Now update this entry's cached metadata of all its dependencies
+                            # Before updating this new entry's metadata, gather the
+                            # info for all its dependencies
+                            for dep in entry_dependencies[built_entry]:
+                                if dep not in metadata_cache:
+                                    metadata_cache[dep] = dep.get_metadata()
+                            # Now update this entry's cached metadata
                             self._set_metadata(
                                 built_entry.path,
-                                self._build_entry_metadata(
+                                self._build_metadata(
                                     built_entry,
-                                    dependencies,
-                                    new_metadata,
+                                    metadata_cache,
+                                    entry_dependencies,
                                 ),
                             )
 
-    def _build_entry_metadata(
+    def _build_metadata(
         self,
-        entry: "Entry",
-        dependencies: Mapping[Node, Collection[Node]],
+        node: Node,
         metadata: Mapping[Entry, Any],
+        entry_dependencies: Mapping[Node, Collection[Entry]],
     ) -> Dict[str, Any]:
-        node_metadata: Dict[str, Any] = {"deps": {}}
-
-        # Simple graph traversal to find all ancestor leaf nodes
-        to_visit: List[Node] = list(dependencies[entry])
-        while to_visit:
-            v = to_visit.pop()
-            if v in metadata:
-                assert isinstance(v, Entry)
-                node_metadata["deps"][str(v.path)] = metadata[v]
-            to_visit.extend(dependencies[v])
-        return node_metadata
+        return {str(e.path): metadata[e] for e in entry_dependencies[node]}
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
@@ -290,7 +283,7 @@ class Execution:
 
         # check that the outputs were actually created
         for entry in builder.builds:
-            if not entry.path.exists():
+            if isinstance(entry, Entry) and not entry.path.exists():
                 raise DependencyError(f"Builder {builder} didn't output {entry}")
 
 

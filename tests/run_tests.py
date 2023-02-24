@@ -4,12 +4,12 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import TestCase
 
-from minicons.builder import DirBuilder, MultipleFilesBuilder, SingleFileBuilder
+from minicons.builder import Builder, SingleFileBuilder
 from minicons.builders.c import CompilerConfig, SharedLibrary
 from minicons.entry import File
 from minicons.environment import Environment
 from minicons.execution import Execution
-from minicons.types import FileSource
+from minicons.types import DirArg, FileArg, FileSource, SourceLike
 
 
 class Common(TestCase):
@@ -35,7 +35,7 @@ class MiniconsTests(Common):
             def build(self) -> None:
                 self.target.path.write_text("Hello, world!")
 
-        builder = TestBuilder(self.env, self.env.file("foo.txt"))
+        builder: SourceLike[File] = TestBuilder(self.env, self.env.file("foo.txt"))
 
         self.execution.build_targets(builder)
 
@@ -51,38 +51,45 @@ class MiniconsTests(Common):
     def test_files_builder(self) -> None:
         """Tests a builder which outputs multiple files"""
 
-        class TestBuilder(MultipleFilesBuilder):
+        class TestBuilder(Builder):
+            def __init__(self, env: Environment, f1: FileArg, f2: FileArg):
+                super().__init__(env)
+                self.f1 = self.register_target(env.file(f1))
+                self.f2 = self.register_target(env.file(f2))
+
             def build(self) -> None:
-                for i, file in enumerate(self.target):
-                    file.path.write_text(f"File {i}")
+                self.f1.path.write_text("file 1")
+                self.f2.path.write_text("file 2")
 
         builder = TestBuilder(
             self.env,
-            [
-                self.env.file("foo.txt"),
-                self.env.file("bar.txt"),
-            ],
+            "foo.txt",
+            "bar.txt",
         )
-        self.execution.build_targets(builder)
+        self.execution.build_targets([builder.f1, builder.f2])
         self.assertEqual(
             self.root.joinpath("foo.txt").read_text(),
-            "File 0",
+            "file 1",
         )
         self.assertEqual(
             self.root.joinpath("bar.txt").read_text(),
-            "File 1",
+            "file 2",
         )
 
     def test_dir_builder(self) -> None:
         """Tests a builder which outputs a directory"""
 
-        class TestBuilder(DirBuilder):
+        class TestBuilder(Builder):
+            def __init__(self, env: Environment, d: DirArg):
+                super().__init__(env)
+                self.target = self.register_target(env.dir(d))
+
             def build(self) -> None:
                 self.target.path.mkdir()
                 self.target.path.joinpath("foo.txt").write_text("foo")
                 self.target.path.joinpath("bar.txt").write_text("bar")
 
-        builder = TestBuilder(self.env, self.env.dir("foo"))
+        builder = TestBuilder(self.env, "foo")
         self.execution.build_targets(builder)
         self.assertEqual(self.root.joinpath("foo", "foo.txt").read_text(), "foo")
         self.assertEqual(self.root.joinpath("foo", "bar.txt").read_text(), "bar")
@@ -122,7 +129,7 @@ class MiniconsTests(Common):
         # No rebuild here
         prepared = self.execution.prepare_build(builder)
         self.assertFalse(prepared.to_build)
-        self.assertEqual(prepared.dependencies[outfile], [infile])
+        self.assertEqual(prepared.edges[outfile], [infile])
 
         inpath.write_text("Version 2")
         # Set the mtime to something later. Just using the default system mtimes isn't
