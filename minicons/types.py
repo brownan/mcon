@@ -13,6 +13,8 @@ __all__ = [
     "E",
     "SourceType",
     "SourceLike",
+    "FileArg",
+    "DirArg",
 ]
 
 # Argument types that can be passed in to register_alias() and build_targets()

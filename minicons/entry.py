@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from abc import ABC, abstractmethod
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -17,6 +17,8 @@ from typing import (
     Type,
     Union,
 )
+
+from minicons import FilesSource
 
 if TYPE_CHECKING:
     from minicons.builder import Builder
@@ -87,6 +89,33 @@ class Entry(Node, ABC):
         cls_name = self.__class__.__name__
         rel_path = str(self)
         return f"{cls_name}({rel_path!r})"
+
+    def relative_to(self, root: Union[str, Path] = "") -> str:
+        """Returns the current file's path relative to the given root either within
+        a build directory or the environment's root
+
+        For example, if a File has path foo/bar/baz.txt
+
+        >>> f = File(..., "foo/bar/baz.txt")
+        >>> f.relative_to("")
+            "foo/bar/baz.txt"
+        >>> f.relative_to("foo")
+            "bar/baz.txt"
+
+        The method works the same if the file is under a build directory, in that
+        the root is interpreted relative to the file's build dir.
+
+        >>> f = File(..., "build/bdir/foo/bar/baz.txt")
+        >>> f.relative_to("")
+            "foo/bar/baz.txt"
+        >>> f.relative_to("foo")
+            "bar/baz.txt"
+
+        """
+        file_rel_path = self.env.get_rel_path(self.path)
+        root_rel_path = self.env.get_rel_path(root)
+        new_rel_path = PurePath(file_rel_path).relative_to(root_rel_path)
+        return str(new_rel_path)
 
     def derive(self: "E", build_dir_name: str, new_ext: Optional[str] = None) -> "E":
         """Create a derivative file/dir from this entry using Environment.get_build_path()"""
@@ -179,7 +208,7 @@ class FileSet(Node, Iterable[File]):
     """A set of files whose contents is not necessarily known until build time after
     the fileset has been built.
 
-    A builder that outputs a FileSet is expected to add files to it during the build phase.
+    A builder which outputs a FileSet is expected to add files to it during the build phase.
     The downstream builders which depend on this FileSet will then have access to the
     final set of files within the FileSet.
 
@@ -195,9 +224,20 @@ class FileSet(Node, Iterable[File]):
         super().__init__(env)
         self._sources: List[Node] = []
 
-    def add(self, item: Node) -> None:
-        self._sources.append(item)
-        self.depends.add(item)
+    def add(self, sources: FilesSource) -> None:
+        # Flatten list and resolve SourceLike objects to find all Nodes
+        to_process: List[FilesSource] = [sources]
+        while to_process:
+            processing = to_process.pop()
+            if hasattr(processing, "target"):
+                to_process.append(processing.target)
+            elif isinstance(processing, Node):
+                self.depends.add(processing)
+                self._sources.append(processing)
+            elif isinstance(processing, Iterable):
+                to_process.extend(processing)
+            else:
+                raise TypeError(f"Unknown source type {processing!r}")
 
     def __iter__(self) -> Iterator[File]:
         for item in self._sources:

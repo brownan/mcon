@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Iterable, List, TypeVar
+from typing import TYPE_CHECKING, List, TypeVar
 
 from minicons.entry import Dir, File, FileSet, Node
 from minicons.types import DirSource, FileArg, FileSource, FilesSource
@@ -92,19 +92,7 @@ class Builder(ABC):
         """
         fileset = FileSet(self.env)
         self.depends.append(fileset)
-
-        to_process: List[FilesSource] = [sources]
-        while to_process:
-            processing = to_process.pop()
-            if hasattr(processing, "target"):
-                fileset.add(processing.target)
-            elif isinstance(processing, (File, Dir, FileSet)):
-                fileset.add(processing)
-            elif isinstance(processing, Iterable):
-                to_process.append(processing)
-            else:
-                raise TypeError(f"Unknown file source type {processing!r}")
-
+        fileset.add(sources)
         return fileset
 
     def depends_dir(self, source: DirSource) -> "Dir":
