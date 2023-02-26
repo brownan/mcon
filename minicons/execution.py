@@ -37,6 +37,7 @@ class PreparedBuild:
     out_of_date: Collection[Entry]
     to_build: Collection[Node]
     entry_dependencies: Mapping[Node, Collection[Entry]]
+    targets: Sequence[Node]
 
 
 class Execution:
@@ -211,6 +212,7 @@ class Execution:
             to_build=to_build,
             edges=edges,
             entry_dependencies=all_dependencies,
+            targets=target_nodes,
         )
 
     def build_targets(
@@ -234,11 +236,10 @@ class Execution:
             raise ValueError("Targets and prepared_build cannot be specified together")
 
         ordered_nodes = prepared_build.ordered_nodes
-        out_of_date_entries = prepared_build.out_of_date
         entry_dependencies = prepared_build.entry_dependencies
         to_build = prepared_build.to_build
 
-        if not out_of_date_entries:
+        if not to_build:
             logger.info("All files up to date")
             return
 
