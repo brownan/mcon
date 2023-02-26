@@ -29,11 +29,11 @@ FileSource = Union[
     "SourceLike[File]",
 ]
 FilesSource = Union[
-    "File",
-    "FileSet",
-    "Dir",
-    Iterable[Union["File", "Dir", "FileSet", "SourceLike"]],
+    "Entry",
     "SourceLike",
+    "str",
+    Path,
+    Iterable["FilesSource"],
 ]
 DirSource = Union[
     "Dir",

@@ -89,7 +89,11 @@ class Environment:
             rel_path = src.relative_to(self.root)
         else:
             # Result is relative to the directory under the build root
-            rel_path = src.relative_to(src.parents[index - 1])
+            if index == 0:
+                # src is itself a build directory
+                return ""
+            else:
+                rel_path = src.relative_to(src.parents[index - 1])
 
         return str(rel_path)
 

@@ -1,11 +1,14 @@
 import base64
+import csv
 import dataclasses
+import hashlib
 import os.path
 import re
+from configparser import ConfigParser
 from email.message import Message
 from os import PathLike
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import packaging.requirements
 import packaging.tags
@@ -13,10 +16,10 @@ import packaging.utils
 import packaging.version
 import toml
 
-from minicons import Environment, FileSet
+from minicons import Builder, Environment, FileSet
 from minicons.builders.archive import TarBuilder, ZipBuilder
 from minicons.builders.install import InstallFiles
-from minicons.types import FilesSource
+from minicons.types import DirArg, FilesSource
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -221,7 +224,7 @@ def build_core_metadata(pyproject: PyProject) -> Tuple[str, List[Path]]:
 
 
 class Wheel:
-    def __init__(self, env: Environment, dist_dir: Path, tag: str):
+    def __init__(self, env: Environment, tag: str, dist_dir: Union[str, Path] = "dist"):
         self.env = env
 
         # Wheel configuration
@@ -248,38 +251,53 @@ class Wheel:
 
         self.wheel_build_dir = self.env.build_root.joinpath("wheel")
         self.wheel_data_dir = self.wheel_build_dir.joinpath(data_dir_name)
-        self.wheel_dist_dir = env.root.joinpath(dist_dir)
+        dist_dir = env.root.joinpath(dist_dir)
 
         self.wheel_fileset = FileSet(env)
+        self.manifest_fileset = FileSet(env)
         self.wheel = ZipBuilder(
             env,
             env.file(dist_dir / wheel_name),
             self.wheel_fileset,
-            "wheel",
+            self.wheel_build_dir,
+        )
+
+        metadata_dir = WheelMetadataBuilder(env, self.wheel_data_dir, tag, self.pyproject)
+        self.wheel_fileset.add(metadata_dir)
+        self.manifest_fileset.add(metadata_dir)
+
+        self.wheel_fileset.add(
+            WheelManifestBuilder(
+                env, self.wheel_build_dir, self.wheel_data_dir, self.manifest_fileset
+            )
         )
 
         self.sdist_build_dir = self.env.build_root.joinpath("sdist")
         self.sdist_fileset = FileSet(env)
         self.sdist = TarBuilder(
             env,
-            env.file(dist_dir / sdist_filename),
+            env.file(dist_dir.joinpath(sdist_filename).with_suffix(".tar.gz")),
             self.sdist_fileset,
-            "sdist",
+            self.sdist_build_dir,
+            compression="gz",
         )
 
-    def add_sources(
+    def add_wheel_sources(
         self,
         sources: FilesSource,
-        wheel: bool = True,
-        sdist: bool = True,
         relative_to: str = "",
     ) -> None:
-        if wheel:
-            fileset = InstallFiles(self.env, self.wheel_build_dir, sources, relative_to)
-            self.wheel_fileset.add(fileset)
-        if sdist:
-            fileset = InstallFiles(self.env, self.sdist_build_dir, sources, relative_to)
-            self.sdist_fileset.add(fileset)
+        fileset = InstallFiles(self.env, self.wheel_build_dir, sources, relative_to)
+        self.wheel_fileset.add(fileset)
+        self.manifest_fileset.add(fileset)
+
+    def add_sdist_sources(
+        self,
+        sources: FilesSource,
+        relative_to: str = "",
+    ) -> None:
+        fileset = InstallFiles(self.env, self.sdist_build_dir, sources, relative_to)
+        self.sdist_fileset.add(fileset)
 
     def add_data(
         self,
@@ -291,6 +309,98 @@ class Wheel:
             self.env, self.wheel_data_dir / category, sources, relative_to
         )
         self.wheel_fileset.add(fileset)
+
+
+class WheelMetadataBuilder(Builder):
+    def __init__(self, env: Environment, target: DirArg, tag: str, pyproject: PyProject):
+        super().__init__(env)
+        self.target = self.register_target(self.env.dir(target))
+        self.tag = tag
+        self.depends_file(pyproject.file)
+        self.pyproject = pyproject
+
+        self.core_metadata, additional_sources = build_core_metadata(pyproject)
+        self.depends_files(additional_sources)
+
+    def build(self) -> None:
+        tag = self.tag
+        datadir = self.target.path
+
+        datadir.mkdir(exist_ok=True)
+
+        root_is_purelib = tag.endswith("-none-any")
+
+        datadir.joinpath("METADATA").write_text(self.core_metadata)
+
+        # Build wheel metadata
+        msg = Message()
+        msg["Wheel-Version"] = "1.0"
+        msg["Generator"] = "minicons"
+        msg["Root-Is-Purelib"] = str(root_is_purelib).lower()
+        for t in packaging.tags.parse_tag(tag):
+            msg["Tag"] = str(t)
+        datadir.joinpath("WHEEL").write_text(str(msg))
+
+        # Build entry points file
+        metadata = self.pyproject.project_metadata
+        groups = {}
+        if "scripts" in metadata:
+            groups["console_scripts"] = metadata["scripts"]
+
+        if "gui-scripts" in metadata:
+            groups["gui_scripts"] = metadata["gui-scripts"]
+
+        if "entry-points" in metadata:
+            for group, items in metadata["entry-points"].items():
+                if group in ("scripts", "gui-scripts"):
+                    raise PyProjectError(
+                        f"Invalid {self.pyproject.file} table "
+                        f"project.entry-points.{group}. Use "
+                        f"project.{group} instead"
+                    )
+                groups[group] = items
+
+        ini = ConfigParser()
+        for group, items in groups.items():
+            ini.add_section(group)
+            for key, val in items.items():
+                ini[group][key] = val
+
+        with datadir.joinpath("entry_points.txt").open("w", encoding="utf-8") as f:
+            ini.write(f)
+
+
+class WheelManifestBuilder(Builder):
+    def __init__(
+        self,
+        env: Environment,
+        wheel_build_dir: Path,
+        wheel_data_dir: Path,
+        wheel_fileset: FileSet,
+    ):
+        super().__init__(env)
+        self.wheel_fileset = self.depends_files(wheel_fileset)
+        self.wheel_build_dir = wheel_build_dir
+        self.target = self.register_target(self.env.file(wheel_data_dir / "RECORD"))
+
+    def build(self) -> None:
+        with self.target.path.open("w", newline="") as outfile:
+            writer = csv.writer(outfile)
+            for f in self.wheel_fileset:
+                path_str = f.relative_to(self.wheel_build_dir)
+                data = f.path.read_bytes()
+                size = len(data)
+                digest = hashlib.sha256(data).digest()
+                digest_str = "sha256=" + (urlsafe_b64encode(digest).decode("ascii"))
+                writer.writerow([path_str, digest_str, str(size)])
+
+            writer.writerow(
+                [
+                    self.target.relative_to(self.wheel_build_dir),
+                    "",
+                    "",
+                ]
+            )
 
 
 def _write_contacts(

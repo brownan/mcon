@@ -14,16 +14,15 @@ from typing import (
     List,
     MutableSet,
     Optional,
+    Set,
     Type,
     Union,
 )
 
-from minicons import FilesSource
-
 if TYPE_CHECKING:
     from minicons.builder import Builder
     from minicons.environment import Environment
-    from minicons.types import E
+    from minicons.types import E, FilesSource
 
 
 class Node(ABC):  # noqa: B024
@@ -224,6 +223,9 @@ class FileSet(Node, Iterable[File]):
         super().__init__(env)
         self._sources: List[Node] = []
 
+    def __str__(self) -> str:
+        return " ".join(str(s) for s in self._sources)
+
     def add(self, sources: FilesSource) -> None:
         # Flatten list and resolve SourceLike objects to find all Nodes
         to_process: List[FilesSource] = [sources]
@@ -234,14 +236,39 @@ class FileSet(Node, Iterable[File]):
             elif isinstance(processing, Node):
                 self.depends.add(processing)
                 self._sources.append(processing)
+            elif isinstance(processing, (str, Path)):
+                # For convenience, string literals and paths are allowed here but only if they
+                # can be resolved to a File or a Dir immediately. Otherwise, it's ambiguous.
+                path = self.env.root.joinpath(processing)
+                try:
+                    entry = self.env.execution.entries[path]
+                except KeyError as e:
+                    if path.is_file():
+                        entry = self.env.file(path)
+                    elif path.is_dir():
+                        entry = self.env.dir(path)
+                    else:
+                        raise ValueError(f"Path {processing} not found.") from e
+                self.depends.add(entry)
+                self._sources.append(entry)
             elif isinstance(processing, Iterable):
                 to_process.extend(processing)
             else:
                 raise TypeError(f"Unknown source type {processing!r}")
 
     def __iter__(self) -> Iterator[File]:
+        # Deduplicate files from all our sources. It's possible that a file may be
+        # included more than once if, for example, we include a directory and also
+        # explicitly some files within the directory.
+        seen: Set[File] = set()
         for item in self._sources:
-            if isinstance(item, File):
+            if item in seen:
+                continue
+            elif isinstance(item, File):
+                seen.add(item)
                 yield item
             elif isinstance(item, (Dir, FileSet)):
-                yield from iter(item)
+                for subitem in item:
+                    if subitem not in seen:
+                        seen.add(subitem)
+                        yield subitem

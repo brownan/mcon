@@ -2,7 +2,7 @@ import tarfile
 import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ContextManager, Generic, TypeVar
+from typing import ContextManager, Generic, TypeVar, Union
 
 from minicons import Environment, FileArg, FilesSource, SingleFileBuilder
 
@@ -11,7 +11,11 @@ A = TypeVar("A", bound=ContextManager)
 
 class ArchiveCommon(SingleFileBuilder, Generic[A], ABC):
     def __init__(
-        self, env: Environment, target: FileArg, sources: FilesSource, archive_root: str
+        self,
+        env: Environment,
+        target: FileArg,
+        sources: FilesSource,
+        archive_root: Union[str, Path],
     ) -> None:
         super().__init__(env, target)
         self.sources = self.depends_files(sources)
@@ -32,9 +36,11 @@ class ArchiveCommon(SingleFileBuilder, Generic[A], ABC):
         pass
 
 
-class ZipBuilder(ArchiveCommon):
+class ZipBuilder(ArchiveCommon[zipfile.ZipFile]):
     def _get_archive_obj(self) -> zipfile.ZipFile:
-        return zipfile.ZipFile(self.target.path, mode="w", compression=zipfile.ZIP_LZMA)
+        return zipfile.ZipFile(
+            self.target.path, mode="w", compression=zipfile.ZIP_DEFLATED
+        )
 
     def _write_to_archive(
         self, archive: zipfile.ZipFile, filename: Path, arcname: str
@@ -42,9 +48,20 @@ class ZipBuilder(ArchiveCommon):
         archive.write(filename, arcname)
 
 
-class TarBuilder(ArchiveCommon):
+class TarBuilder(ArchiveCommon[tarfile.TarFile]):
+    def __init__(
+        self,
+        env: Environment,
+        target: FileArg,
+        sources: FilesSource,
+        archive_root: Union[str, Path],
+        compression: str = "",
+    ):
+        super().__init__(env, target, sources, archive_root)
+        self.compression = compression
+
     def _get_archive_obj(self) -> tarfile.TarFile:
-        return tarfile.open(self.target.path, mode="w:xz")
+        return tarfile.open(self.target.path, mode="w:" + self.compression)
 
     def _write_to_archive(
         self, archive: tarfile.TarFile, filename: Path, arcname: str

@@ -139,23 +139,25 @@ class Execution:
         ordered_nodes: Sequence[Node] = _sort_dag(all_nodes, edges)
 
         # Entry nodes are nodes with a statically defined filesystem path known before
-        # calling its builder.
+        # calling its builder. Most operations below only apply to entry nodes. In particular,
+        # because the cached metadata is keyed off of the filesystem path. Non-entry
+        # nodes (such as FileSet nodes) are treated differently because they can't have
+        # saved metadata and must be built before they can be used.
         entry_nodes: Set[Entry] = {node for node in all_nodes if isinstance(node, Entry)}
 
-        # Build a mapping of nodes to a collection of Entries that, if changed, would
-        # trigger a rebuild of this node
-        entry_dependencies: Dict[Node, Set[Entry]] = {}
+        # For each node, walk the graph towards leaf nodes to record all nodes this one
+        # depends on -- all ancestor nodes.
+        all_dependencies: Dict[Node, Set[Entry]] = {}
         for node in all_nodes:
-            entry_dependencies[node] = set()
+            all_dependencies[node] = set()
             to_visit = list(edges[node])
             while to_visit:
                 v = to_visit.pop()
                 if isinstance(v, Entry):
-                    entry_dependencies[node].add(v)
+                    all_dependencies[node].add(v)
                 to_visit.extend(edges[v])
 
-        # get metadata on all Entry nodes. This is the metadata of each node with which
-        # we'll compare to the cache to determine what needs rebuilding.
+        # Gather filesystem metadata on all nodes now for use in comparisons in the next step.
         metadata: Dict[Entry, Any] = {}
         for entry in entry_nodes:
             if entry.builder is None and not entry.path.exists():
@@ -164,15 +166,22 @@ class Execution:
                 )
             metadata[entry] = entry.get_metadata()
 
-        # Gather and compare metadata for entry nodes to see if they are outdated
-        # according to all Entries they depend on (anywhere in their ancestry tree)
+        # Each node has stored metadata on every other node it depends on, which forms a signature
+        # to determine if that nodes needs rebuilding. Use the gathered metadata above along
+        # with the node's all_dependencies set, to compare its metadata to the cached copy.
         outdated: Set[Entry] = set()
         for node in all_nodes:
-            if isinstance(node, Entry) and entry_dependencies[node]:
-                old_metadata = self._get_metadata(node.path)
-                new_metadata = self._build_metadata(node, metadata, entry_dependencies)
-                if old_metadata != new_metadata:
+            if isinstance(node, Entry) and node.builder is not None:
+                if not node.path.exists():
+                    # If the node doesn't exist, then of course it needs building.
                     outdated.add(node)
+                else:
+                    old_metadata = self._get_metadata(node.path)
+                    new_metadata = self._metadata_signature(
+                        metadata, all_dependencies[node]
+                    )
+                    if old_metadata != new_metadata:
+                        outdated.add(node)
 
         # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
         # rebuilt. While such nodes are usually also detected as outdated above, they may
@@ -201,7 +210,7 @@ class Execution:
             out_of_date=outdated,
             to_build=to_build,
             edges=edges,
-            entry_dependencies=entry_dependencies,
+            entry_dependencies=all_dependencies,
         )
 
     def build_targets(
@@ -254,20 +263,17 @@ class Execution:
                             # Now update this entry's cached metadata
                             self._set_metadata(
                                 built_entry.path,
-                                self._build_metadata(
-                                    built_entry,
-                                    metadata_cache,
-                                    entry_dependencies,
+                                self._metadata_signature(
+                                    metadata_cache, entry_dependencies[built_entry]
                                 ),
                             )
 
-    def _build_metadata(
+    def _metadata_signature(
         self,
-        node: Node,
         metadata: Mapping[Entry, Any],
-        entry_dependencies: Mapping[Node, Collection[Entry]],
-    ) -> Dict[str, Any]:
-        return {str(e.path): metadata[e] for e in entry_dependencies[node]}
+        nodes: Iterable[Entry],
+    ) -> Dict:
+        return {str(e.path): metadata[e] for e in nodes}
 
     def _call_builder(self, builder: "Builder") -> None:
         """Calls the given builder to build its entries"""
