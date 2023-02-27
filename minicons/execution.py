@@ -211,8 +211,8 @@ class Execution:
         # correctly. (A FileSet whose builder depends on another FileSet requires
         # both to be built)
         for node in reversed(ordered_nodes):
-            if node in to_build and any(d not in entry_nodes for d in edges[node]):
-                to_build.add(node)
+            if node in to_build:
+                to_build.update(d for d in edges[node] if d not in entry_nodes)
 
         return PreparedBuild(
             ordered_nodes=ordered_nodes,
