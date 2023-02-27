@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from pathlib import Path, PurePath
 from typing import (
     TYPE_CHECKING,
@@ -15,7 +15,8 @@ from typing import (
     MutableSet,
     Optional,
     Set,
-    Type,
+    Tuple,
+    TypeVar,
     Union,
 )
 
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from minicons.builder import Builder
     from minicons.environment import Environment
     from minicons.types import E, FilesSource
+
+M = TypeVar("M", bound="EntryMeta")
 
 
 class Node(ABC):  # noqa: B024
@@ -40,14 +43,14 @@ class Node(ABC):  # noqa: B024
         self.depends: MutableSet[Node] = set()
 
 
-class Entry(Node, ABC):
-    """Represents a file or a directory on the filesystem with a path
-
-    The path may or may not exist until it is built. After its builder builds it,
-    the path is expected to exist.
-    """
-
-    def __new__(cls: Type[E], env: Environment, path: Union[Path, str]) -> E:
+class EntryMeta(ABCMeta):
+    def __call__(
+        cls,
+        env: Environment,
+        path: Union[Path, str],
+        *args: Tuple,
+        **kwargs: Dict,
+    ) -> Entry:
         # Make sure path is always absolute, interpreting relative paths as relative
         # to the environment root
         path = env.root.joinpath(path)
@@ -61,8 +64,17 @@ class Entry(Node, ABC):
         except KeyError:
             pass
 
-        entry = super().__new__(cls)
+        entry = super().__call__(env, path, *args, **kwargs)
+        env.execution.entries[path] = entry
         return entry
+
+
+class Entry(Node, metaclass=EntryMeta):
+    """Represents a file or a directory on the filesystem with a path
+
+    The path may or may not exist until it is built. After its builder builds it,
+    the path is expected to exist.
+    """
 
     def __init__(
         self,
