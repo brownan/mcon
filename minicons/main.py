@@ -11,9 +11,9 @@ from minicons.execution import PreparedBuild
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--construct", default="construct.py")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("-B", "--always-make", action="store_true")
+    parser.add_argument("-c", "--construct", default="construct.py")
+    parser.add_argument("-B", "--always-build", action="store_true")
+    parser.add_argument("-d", "--dry-run", action="store_true")
     parser.add_argument("--tree", action="store_true")
     parser.add_argument("target", nargs="+")
     args = vars(parser.parse_args())
@@ -31,11 +31,13 @@ def main() -> None:
 
     prepared = current_execution.prepare_build(args["target"])
 
+    if args["always_build"]:
+        prepared.to_build = set(
+            n for n in prepared.ordered_nodes if n.builder is not None
+        )
+
     if args["tree"]:
         print_tree(prepared)
-
-    if args["always_make"]:
-        prepared.to_build = set(prepared.ordered_nodes)
 
     current_execution.build_targets(prepared_build=prepared, dry_run=args["dry_run"])
 
