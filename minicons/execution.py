@@ -36,6 +36,7 @@ class PreparedBuild:
     edges: Mapping[Node, Collection[Node]]
     out_of_date: Collection[Entry]
     to_build: Collection[Node]
+    changed: Collection[Node]
     entry_dependencies: Mapping[Node, Collection[Entry]]
     targets: Sequence[Node]
 
@@ -171,6 +172,7 @@ class Execution:
         # to determine if that nodes needs rebuilding. Use the gathered metadata above along
         # with the node's all_dependencies set, to compare its metadata to the cached copy.
         outdated: Set[Entry] = set()
+        changed: Set[Entry] = set()
         for node in all_nodes:
             if isinstance(node, Entry) and node.builder is not None:
                 if not node.path.exists():
@@ -183,6 +185,12 @@ class Execution:
                     )
                     if old_metadata != new_metadata:
                         outdated.add(node)
+                        for dep in all_dependencies[node]:
+                            path = str(dep.path)
+                            if old_metadata is not None and old_metadata.get(
+                                path
+                            ) != new_metadata.get(path):
+                                changed.add(dep)
 
         # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
         # rebuilt. While such nodes are usually also detected as outdated above, they may
@@ -203,7 +211,7 @@ class Execution:
         # correctly. (A FileSet whose builder depends on another FileSet requires
         # both to be built)
         for node in reversed(ordered_nodes):
-            if any(d not in entry_nodes for d in edges[node]):
+            if node in to_build and any(d not in entry_nodes for d in edges[node]):
                 to_build.add(node)
 
         return PreparedBuild(
@@ -213,6 +221,7 @@ class Execution:
             edges=edges,
             entry_dependencies=all_dependencies,
             targets=target_nodes,
+            changed=changed,
         )
 
     def build_targets(

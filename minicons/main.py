@@ -33,7 +33,6 @@ def main() -> None:
 
     if args["tree"]:
         print_tree(prepared)
-        return
 
     if args["always_make"]:
         prepared.to_build = set(prepared.ordered_nodes)
@@ -49,6 +48,7 @@ def print_tree(
     edges = build.edges
     out_of_date = build.out_of_date
     to_build = build.to_build
+    changed = build.changed
 
     # First traverse the graph forming a new graph that eliminates non-entry nodes
     new_edges: Dict[Node, List[Node]] = {e: list(d) for e, d in edges.items()}
@@ -69,6 +69,7 @@ def print_tree(
 
     print("O = out of date")
     print("B = to build")
+    print("C = changed")
 
     # Now walk this new graph printing out nodes as found, keeping track of the depth.
     while to_visit:
@@ -80,9 +81,10 @@ def print_tree(
             print()
 
         print(
-            "{} {} ".format(
+            "{} {} {} ".format(
                 "O" if node in out_of_date else " ",
                 "B" if node in to_build else " ",
+                "C" if node in changed else " ",
             ),
             end="",
         )
@@ -101,7 +103,7 @@ def print_tree(
             skip_children = True
             if new_edges[node]:
                 print(
-                    "    {}\u2514\u2500(child nodes shown above)".format(
+                    "      {}\u2514\u2500(child nodes shown above)".format(
                         "\u2502  " * depth
                     )
                 )
