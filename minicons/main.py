@@ -47,6 +47,8 @@ def print_tree(
     targets = build.targets
     ordered_nodes = build.ordered_nodes
     edges = build.edges
+    out_of_date = build.out_of_date
+    to_build = build.to_build
 
     # First traverse the graph forming a new graph that eliminates non-entry nodes
     new_edges: Dict[Node, List[Node]] = {e: list(d) for e, d in edges.items()}
@@ -61,10 +63,30 @@ def print_tree(
     seen: Dict[Node, int] = {}
     to_visit: List[Tuple[Node, int, bool]] = list((t, 0, False) for t in targets)
 
+    # Nodes are popped off the end of the list. So that we print them in the original order,
+    # reverse this list.
+    to_visit.reverse()
+
+    print("O = out of date")
+    print("B = to build")
+
+    # Now walk this new graph printing out nodes as found, keeping track of the depth.
     while to_visit:
         node, depth, last_child = to_visit.pop()
         assert isinstance(node, Entry)
         skip_children = False
+
+        if depth == 0:
+            print()
+
+        print(
+            "{} {} ".format(
+                "O" if node in out_of_date else " ",
+                "B" if node in to_build else " ",
+            ),
+            end="",
+        )
+
         if depth == 0:
             print(str(node))
         else:
@@ -77,11 +99,18 @@ def print_tree(
             )
         if node in seen:
             skip_children = True
+            if new_edges[node]:
+                print(
+                    "    {}\u2514\u2500(child nodes shown above)".format(
+                        "\u2502  " * depth
+                    )
+                )
         else:
             seen[node] = depth
         if not skip_children:
             children = cast(List[Entry], list(new_edges[node]))
             children_set = set(children)
+            # Show directories first, then files. Secondary sort by name
             children.sort(
                 key=lambda node: ((Dir, File).index(type(node)), str(node.path)),
                 reverse=True,
@@ -90,7 +119,6 @@ def print_tree(
                 if child in children_set:
                     to_visit.append((child, depth + 1, child is children[0]))
                     children_set.remove(child)
-    pass
 
 
 if __name__ == "__main__":
