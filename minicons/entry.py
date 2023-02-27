@@ -224,7 +224,7 @@ class FileSet(Node, Iterable[File]):
         self._sources: List[Node] = []
 
     def __str__(self) -> str:
-        return " ".join(str(s) for s in self._sources)
+        return "Abstract FileSet"
 
     def add(self, sources: FilesSource) -> None:
         # Flatten list and resolve SourceLike objects to find all Nodes
