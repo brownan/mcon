@@ -271,22 +271,9 @@ class Wheel:
             )
         )
 
-        sdist_build_dir = self.env.build_root.joinpath("sdist")
-        self.sdist_build_root = sdist_build_dir / f"{dist_filename}-{self.version}"
-        self.sdist_fileset = FileSet(env)
-        self.sdist = TarBuilder(
-            env,
-            env.file(dist_dir.joinpath(f"{dist_filename}-{self.version}.tar.gz")),
-            self.sdist_fileset,
-            sdist_build_dir,
-            compression="gz",
-        )
+        self.target = self.wheel
 
-        self.sdist_fileset.add(
-            CoreMetadataBuilder(env, self.sdist_build_root / "PKG-INFO", self.pyproject)
-        )
-
-    def add_wheel_sources(
+    def add_sources(
         self,
         sources: FilesSource,
         relative_to: str = "",
@@ -294,15 +281,6 @@ class Wheel:
         fileset = InstallFiles(self.env, self.wheel_build_dir, sources, relative_to)
         self.wheel_fileset.add(fileset)
         self.manifest_fileset.add(fileset)
-
-    def add_sdist_sources(
-        self,
-        sources: FilesSource,
-        relative_to: str = "",
-    ) -> None:
-        destdir = self.sdist_build_root
-        fileset = InstallFiles(self.env, destdir, sources, relative_to)
-        self.sdist_fileset.add(fileset)
 
     def add_data(
         self,
@@ -316,14 +294,46 @@ class Wheel:
         self.wheel_fileset.add(fileset)
 
 
+class SDist:
+    def __init__(self, env: Environment, dist_dir: Union[str, Path] = "dist"):
+        self.env = env
+        dist_dir = env.root.joinpath(dist_dir)
+
+        self.pyproject = parse_pyproject_toml(self.env.root.joinpath("pyproject.toml"))
+        self.version = self.pyproject.version
+        dist_filename = self.pyproject.dist_filename
+
+        sdist_build_dir = env.build_root.joinpath("sdist")
+        self.sdist_build_root = sdist_build_dir / f"{dist_filename}-{self.version}"
+        self.sdist_fileset = FileSet(env)
+        self.target = TarBuilder(
+            env,
+            env.file(dist_dir.joinpath(f"{dist_filename}-{self.version}.tar.gz")),
+            self.sdist_fileset,
+            sdist_build_dir,
+            compression="gz",
+        )
+        self.sdist_fileset.add(
+            CoreMetadataBuilder(env, self.sdist_build_root / "PKG-INFO", self.pyproject)
+        )
+
+    def add_sources(
+        self,
+        sources: FilesSource,
+        relative_to: str = "",
+    ) -> None:
+        destdir = self.sdist_build_root
+        fileset = InstallFiles(self.env, destdir, sources, relative_to)
+        self.sdist_fileset.add(fileset)
+
+
 class CoreMetadataBuilder(SingleFileBuilder):
     def __init__(self, env: Environment, target: FileArg, pyproject: PyProject):
         super().__init__(env, target)
         self.pyproject = pyproject
-        self.core_metadata, additional_sources = build_core_metadata(pyproject)
-
+        self.core_metadata, additital_deps = build_core_metadata(pyproject)
         self.depends_file(pyproject.file)
-        self.depends_files(additional_sources)
+        self.depends_files(additital_deps)
 
     def build(self) -> None:
         self.target.path.write_text(self.core_metadata)
@@ -332,23 +342,21 @@ class CoreMetadataBuilder(SingleFileBuilder):
 class WheelMetadataBuilder(Builder):
     def __init__(self, env: Environment, target: DirArg, tag: str, pyproject: PyProject):
         super().__init__(env)
-        self.target = self.register_target(self.env.dir(target))
+        dir_target = self.register_target(self.env.dir(target))
         self.tag = tag
-
-        self.depends_file(
-            CoreMetadataBuilder(
-                env,
-                self.target.path.joinpath("METADATA"),
-                pyproject,
-            )
-        )
-
         self.pyproject = pyproject
         self.depends_file(pyproject.file)
 
+        # Core metadata has to be built /after/ the WheelMetadataBuilder, since it depends
+        # on the directory being built
+        core_metadata = CoreMetadataBuilder(env, dir_target.path / "METADATA", pyproject)
+        core_metadata.depends_dir(dir_target)
+        self.target = FileSet(env, [dir_target, core_metadata])
+        self.dir_target = dir_target
+
     def build(self) -> None:
         tag = self.tag
-        datadir = self.target.path
+        datadir = self.dir_target.path
 
         datadir.mkdir(exist_ok=True)
 

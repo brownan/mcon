@@ -219,9 +219,11 @@ class FileSet(Node, Iterable[File]):
 
     """
 
-    def __init__(self, env: Environment):
+    def __init__(self, env: Environment, sources: Optional[FilesSource] = None):
         super().__init__(env)
         self._sources: List[Node] = []
+        if sources is not None:
+            self.add(sources)
 
     def __str__(self) -> str:
         return "Abstract FileSet"

@@ -258,11 +258,10 @@ class Execution:
         for node in ordered_nodes:
             if node in to_build and node not in built_nodes and node.builder is not None:
                 builder = node.builder
-                logger.info("Building %s", builder)
-                if not dry_run:
-                    self._call_builder(builder)
-                    built_nodes.update(builder.builds)
+                self._call_builder(builder, dry_run)
+                built_nodes.update(builder.builds)
 
+                if not dry_run:
                     for built_entry in builder.builds:
                         if isinstance(built_entry, Entry):
                             # Before updating this new entry's metadata, gather the
@@ -285,23 +284,27 @@ class Execution:
     ) -> Dict:
         return {str(e.path): metadata[e] for e in nodes}
 
-    def _call_builder(self, builder: "Builder") -> None:
+    def _call_builder(self, builder: "Builder", dry_run: bool) -> None:
         """Calls the given builder to build its entries"""
         # First remove its entries and prepare them:
-        for entry in builder.builds:
-            if isinstance(entry, Entry):
-                logger.debug(f"Removing {entry}")
-                entry.remove()
-        for entry in builder.builds:
-            if isinstance(entry, Entry):
-                entry.prepare()
+        if not dry_run:
+            for entry in builder.builds:
+                if isinstance(entry, Entry):
+                    logger.debug(f"Removing {entry}")
+                    entry.remove()
+            for entry in builder.builds:
+                if isinstance(entry, Entry):
+                    entry.prepare()
 
-        builder.build()
+        logger.info("Building %s", builder)
 
-        # check that the outputs were actually created
-        for entry in builder.builds:
-            if isinstance(entry, Entry) and not entry.path.exists():
-                raise DependencyError(f"Builder {builder} didn't output {entry}")
+        if not dry_run:
+            builder.build()
+
+            # check that the outputs were actually created
+            for entry in builder.builds:
+                if isinstance(entry, Entry) and not entry.path.exists():
+                    raise DependencyError(f"Builder {builder} didn't output {entry}")
 
 
 def _traverse_node_graph(
