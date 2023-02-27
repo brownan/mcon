@@ -7,6 +7,8 @@ import minicons.execution
 from minicons import Dir, Entry, File, FileSet, Node
 from minicons.execution import PreparedBuild
 
+logger = logging.getLogger("minicons")
+
 
 class TreeAction(argparse.Action):
     def __call__(
@@ -22,17 +24,49 @@ class TreeAction(argparse.Action):
             namespace.tree = True
 
 
+log_format = "%(log_color)s%(levelname)-8s%(reset)s %(message)s"
+
+
+def esc(*codes: int) -> str:
+    return "\033[{}m".format(";".join(str(code) for code in codes))
+
+
+LOG_COLORS = {
+    logging.DEBUG: esc(36),
+    logging.INFO: esc(37),
+    logging.WARNING: esc(33),
+    logging.ERROR: esc(31),
+    logging.CRITICAL: esc(37, 41),
+}
+RESET = esc(0)
+
+
+class ColorFormatter(logging.Formatter):
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        record.log_color = LOG_COLORS.get(record.levelno, "")
+        record.reset = RESET
+        return super().formatMessage(record)
+
+
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--construct", default="construct.py")
     parser.add_argument("-B", "--always-build", action="store_true")
     parser.add_argument("-d", "--dry-run", action="store_true")
     parser.add_argument("--tree", "--tree=all", action=TreeAction, nargs=0)
+    parser.add_argument("-v", "--verbose", action="count", default=0)
+    parser.add_argument("-q", "--quiet", action="count", default=0)
     parser.add_argument("target", nargs="+")
     args = vars(parser.parse_args())
 
-    print(args["tree"])
+    level = logging.INFO
+    level -= 10 * args["verbose"]
+    level += 10 * args["quiet"]
+    root = logging.getLogger()
+    root.setLevel(level)
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColorFormatter(log_format))
+    root.addHandler(handler)
 
     construct_path = Path(args["construct"]).resolve()
     contents = open(construct_path, "r").read()

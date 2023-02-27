@@ -290,6 +290,7 @@ class Execution:
         # First remove its entries and prepare them:
         for entry in builder.builds:
             if isinstance(entry, Entry):
+                logger.debug(f"Removing {entry}")
                 entry.remove()
         for entry in builder.builds:
             if isinstance(entry, Entry):

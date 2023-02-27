@@ -39,7 +39,7 @@ class InstallFiles(Builder):
         self.root = self.env.root.joinpath(root)
 
     def __str__(self) -> str:
-        return "InstallFiles to {}".format(self.destdir)
+        return "InstallFiles({})".format(self.destdir)
 
     def build(self) -> None:
         for file in self.sources:
