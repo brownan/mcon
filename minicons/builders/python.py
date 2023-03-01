@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import csv
 import dataclasses
@@ -19,7 +21,7 @@ import toml
 from minicons import Builder, Environment, FileSet, SingleFileBuilder
 from minicons.builders.archive import TarBuilder, ZipBuilder
 from minicons.builders.install import InstallFiles
-from minicons.types import DirArg, FileArg, FilesSource
+from minicons.types import DirArg, FileSource, FilesSource
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -223,14 +225,12 @@ def build_core_metadata(pyproject: PyProject) -> Tuple[str, List[Path]]:
     return str(msg), sources
 
 
-class Wheel:
-    def __init__(self, env: Environment, tag: str, dist_dir: Union[str, Path] = "dist"):
-        self.env = env
+class Distribution:
+    """Sets up the builders for building a wheel and sdist from a python distribution"""
 
-        # Wheel configuration
-        self.tag = tag
-        self.tags = packaging.tags.parse_tag(tag)
-        self.root_is_purelib = tag.endswith("-none-any")
+    def __init__(self, env: Environment, dist_dir: Union[str, Path] = "dist"):
+        self.env = env
+        self.dist_dir = self.env.root.joinpath(dist_dir).resolve()
 
         # Parse pyproject.toml file in the current directory
         self.pyproject = parse_pyproject_toml(self.env.root.joinpath("pyproject.toml"))
@@ -239,29 +239,65 @@ class Wheel:
         self.name = self.pyproject.name
         self.version = self.pyproject.version
 
-        dist_filename = self.pyproject.dist_filename
-        data_dir_name = f"{dist_filename}-{self.version}.dist-info"
+        # Core metadata is used for both source and wheel builds
+        self.core_metadata = CoreMetadataBuilder(env, self.pyproject)
+
+    def wheel(self, tag: str) -> WheelBuilder:
+        """Returns a wheel builder"""
+        return WheelBuilder(
+            self.env, self.dist_dir, self.pyproject, tag, self.core_metadata
+        )
+
+    def sdist(self) -> SDistBuilder:
+        """Returns an sdist builder"""
+        return SDistBuilder(self.env, self.dist_dir, self.pyproject, self.core_metadata)
+
+    def editable(self) -> None:
+        """Returns an editable wheel builder"""
+        pass
+
+
+class WheelBuilder:
+    def __init__(
+        self,
+        env: Environment,
+        distdir: PathLike,
+        pyproject: PyProject,
+        tag: str,
+        core_metadata: FileSource,
+    ):
+        self.env = env
+
+        # Wheel configuration
+        self.tag = tag
+        self.tags = packaging.tags.parse_tag(tag)
+        self.root_is_purelib = tag.endswith("-none-any")
+        version = pyproject.version
+
+        dist_filename = pyproject.dist_filename
+        data_dir_name = f"{dist_filename}-{version}.dist-info"
 
         wheel_name = "{}-{}-{}.whl".format(
             dist_filename,
-            self.version,
+            version,
             self.tag,
         )
 
-        self.wheel_build_dir = self.env.build_root.joinpath("wheel")
+        self.wheel_build_dir = self.env.build_root / "wheel"
         self.wheel_data_dir = self.wheel_build_dir.joinpath(data_dir_name)
-        dist_dir = env.root.joinpath(dist_dir)
 
         self.wheel_fileset = FileSet(env)
         self.manifest_fileset = FileSet(env)
-        self.wheel = ZipBuilder(
+        self.target = ZipBuilder(
             env,
-            env.file(dist_dir / wheel_name),
+            env.file(Path(distdir) / wheel_name),
             self.wheel_fileset,
             self.wheel_build_dir,
         )
 
-        metadata_dir = WheelMetadataBuilder(env, self.wheel_data_dir, tag, self.pyproject)
+        metadata_dir = WheelMetadataBuilder(
+            env, self.wheel_data_dir, tag, pyproject, core_metadata
+        )
         self.wheel_fileset.add(metadata_dir)
         self.manifest_fileset.add(metadata_dir)
 
@@ -270,8 +306,6 @@ class Wheel:
                 env, self.wheel_build_dir, self.wheel_data_dir, self.manifest_fileset
             )
         )
-
-        self.target = self.wheel
 
     def add_sources(
         self,
@@ -294,28 +328,31 @@ class Wheel:
         self.wheel_fileset.add(fileset)
 
 
-class SDist:
-    def __init__(self, env: Environment, dist_dir: Union[str, Path] = "dist"):
+class SDistBuilder:
+    def __init__(
+        self,
+        env: Environment,
+        dist_dir: PathLike,
+        pyproject: PyProject,
+        core_metadata: FileSource,
+    ):
         self.env = env
         dist_dir = env.root.joinpath(dist_dir)
 
-        self.pyproject = parse_pyproject_toml(self.env.root.joinpath("pyproject.toml"))
-        self.version = self.pyproject.version
-        dist_filename = self.pyproject.dist_filename
+        version = pyproject.version
+        dist_filename = pyproject.dist_filename
 
         sdist_build_dir = env.build_root.joinpath("sdist")
-        self.sdist_build_root = sdist_build_dir / f"{dist_filename}-{self.version}"
+        self.sdist_build_root = sdist_build_dir / f"{dist_filename}-{version}"
         self.sdist_fileset = FileSet(env)
         self.target = TarBuilder(
             env,
-            env.file(dist_dir.joinpath(f"{dist_filename}-{self.version}.tar.gz")),
+            env.file(dist_dir.joinpath(f"{dist_filename}-{version}.tar.gz")),
             self.sdist_fileset,
             sdist_build_dir,
             compression="gz",
         )
-        self.sdist_fileset.add(
-            CoreMetadataBuilder(env, self.sdist_build_root / "PKG-INFO", self.pyproject)
-        )
+        self.sdist_fileset.add(core_metadata)
 
     def add_sources(
         self,
@@ -328,8 +365,8 @@ class SDist:
 
 
 class CoreMetadataBuilder(SingleFileBuilder):
-    def __init__(self, env: Environment, target: FileArg, pyproject: PyProject):
-        super().__init__(env, target)
+    def __init__(self, env: Environment, pyproject: PyProject):
+        super().__init__(env, env.get_build_path("METADATA", ""))
         self.pyproject = pyproject
         self.core_metadata, additital_deps = build_core_metadata(pyproject)
         self.depends_file(pyproject.file)
@@ -340,25 +377,33 @@ class CoreMetadataBuilder(SingleFileBuilder):
 
 
 class WheelMetadataBuilder(Builder):
-    def __init__(self, env: Environment, target: DirArg, tag: str, pyproject: PyProject):
+    def __init__(
+        self,
+        env: Environment,
+        target: DirArg,
+        tag: str,
+        pyproject: PyProject,
+        core_metadata: FileSource,
+    ):
         super().__init__(env)
-        dir_target = self.register_target(self.env.dir(target))
         self.tag = tag
         self.pyproject = pyproject
         self.depends_file(pyproject.file)
 
         # Core metadata has to be built /after/ the WheelMetadataBuilder, since it depends
         # on the directory being built
-        core_metadata = CoreMetadataBuilder(env, dir_target.path / "METADATA", pyproject)
-        core_metadata.depends_dir(dir_target)
-        self.target = FileSet(env, [dir_target, core_metadata])
-        self.dir_target = dir_target
+        self.core_metadata = self.depends_file(core_metadata)
+
+        self.target = self.register_target(env.dir(target))
 
     def build(self) -> None:
         tag = self.tag
-        datadir = self.dir_target.path
+        datadir = self.target.path
 
         datadir.mkdir(exist_ok=True)
+
+        # Copy core metadata
+        datadir.joinpath("METADATA").write_text(self.core_metadata.path.read_text())
 
         root_is_purelib = tag.endswith("-none-any")
 

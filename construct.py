@@ -1,17 +1,16 @@
 from minicons import Environment, register_alias
-from minicons.builders.python import SDist, Wheel
+from minicons.builders.python import Distribution
 
 env = Environment()
-wheel = Wheel(env, tag="py38-none-any")
+dist = Distribution(env)
 
-wheel.add_sources(
-    [
-        env.root.glob("minicons/**/*.py"),
-    ]
-)
-
-sdist = SDist(env)
-sdist.add_sources(["construct.py", "pyproject.toml", env.root.glob("minicons/**/*.py")])
-
+wheel = dist.wheel("py38-none-any")
+wheel.add_sources(env.root.glob("minicons/**/*.py"))
+wheel.add_sources("tests/run_tests.py")
 register_alias("wheel", wheel)
+
+sdist = dist.sdist()
+sdist.add_sources("construct.py")
+sdist.add_sources("pyproject.toml")
+sdist.add_sources(env.root.glob("minicons/**/*.py"))
 register_alias("sdist", sdist)
