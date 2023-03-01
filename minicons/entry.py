@@ -175,7 +175,14 @@ class Dir(Entry, Collection[File]):
     The directory referred to by the Dir object may not exist until it is built.
     After building, the Dir object may be treated as a Collection of File objects, or
     treated as a single unit (moved around, passed to another builder that expects a Dir,
-    etc)
+    etc).
+
+    Builders which output a known set of files (either at resolution time or build time)
+    should prefer to output a FileSet. Outputting a Dir may conflict with other builders
+    which may want to add files to the directory. Dir targets let builders treat a
+    directory as a single unit instead of a collection of files. It is commonly useful
+    when calling into another build process which outputs its own directory of files and
+    a minicons builder doesn't know or want to know the exact set of files.
     """
 
     def __init__(self, env: "Environment", path: StrPath, glob: str = "**/*"):
