@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, List, TypeVar
 
 from minicons.entry import Dir, File, FileSet, Node
 from minicons.types import DirSource, FileArg, FileSource, FilesSource
@@ -69,6 +69,20 @@ class Builder(ABC):
             raise ValueError(f"{node} is already being built by {node.builder}")
         node.builder = self
         self.builds.append(node)
+
+        # If this is a fileset with a pre-populated set of files (not files dynamically
+        # generated) then also register them with this builder.
+        # This makes it easy for the builder pattern where they generate a lot of
+        # known files, add them to a fileset, then register them as a single unit.
+        # Maybe this is a shortcut instead of a builder registering files individually
+        # and setting its .target attribute to a list, or maybe the builder plans to add
+        # more files to the fileset during the build phase.
+        # In either case, we have to set these files' builder so that the execution process
+        # doesn't complain about certain files not existing at the start of the build.
+        if isinstance(node, FileSet):
+            for sub_file in node:
+                self.register_target(sub_file)
+
         return node
 
     def depends_file(self, source: FileSource) -> File:
@@ -112,3 +126,14 @@ class SingleFileBuilder(Builder, ABC):
     def __init__(self, env: Environment, target: FileArg):
         super().__init__(env)
         self.target: File = self.register_target(env.file(target))
+
+
+class Command(SingleFileBuilder):
+    """Runs the given python function to generate a file"""
+
+    def __init__(self, env: Environment, target: FileArg, command: Callable[[File], Any]):
+        super().__init__(env, target)
+        self.command = command
+
+    def build(self) -> None:
+        self.command(self.target)

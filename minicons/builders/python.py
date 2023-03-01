@@ -10,7 +10,7 @@ from configparser import ConfigParser
 from email.message import Message
 from os import PathLike
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Sequence, Tuple, Union
 
 import packaging.requirements
 import packaging.tags
@@ -19,6 +19,7 @@ import packaging.version
 import toml
 
 from minicons import Builder, Environment, FileSet, SingleFileBuilder
+from minicons.builder import Command
 from minicons.builders.archive import TarBuilder, ZipBuilder
 from minicons.builders.install import Install, InstallFiles
 from minicons.types import DirArg, FileArg, FileSource, FilesSource
@@ -257,9 +258,38 @@ class Distribution:
         """Returns an sdist builder"""
         return SDist(self.env, self.dist_dir, self.pyproject, self.core_metadata)
 
-    def editable(self) -> None:
+    def editable(self, tag: str, paths: Union[str, Sequence[str]]) -> FileSource:
         """Returns an editable wheel builder"""
-        pass
+        if isinstance(paths, str):
+            paths = [paths]
+
+        # This is basically just a wheel except with a single .pth file in it. So we set
+        # up a wheel just like normal but only add the one file to it.
+        wheel = Wheel(
+            self.env,
+            self.env.build_root / "editable",
+            self.pyproject,
+            tag,
+            self.core_metadata,
+            build_dir_name="editable",
+        )
+
+        pthfile = ""
+        for path in paths:
+            abspath = self.env.root.joinpath(path).resolve()
+            pthfile += str(abspath) + "\n"
+
+        pthname = f"{self.pyproject.dist_filename}-{self.version}.pth"
+
+        file = Command(
+            self.env,
+            wheel.wheel_build_dir / pthname,
+            lambda f: f.path.write_text(pthfile),
+        )
+        wheel.wheel_fileset.add(file)
+        wheel.manifest_fileset.add(file)
+
+        return wheel.target
 
 
 class Wheel:
@@ -270,6 +300,7 @@ class Wheel:
         pyproject: PyProject,
         tag: str,
         core_metadata: FileSource,
+        build_dir_name: str = "wheel",
     ):
         self.env = env
 
@@ -288,7 +319,7 @@ class Wheel:
             self.tag,
         )
 
-        self.wheel_build_dir = self.env.build_root / "wheel"
+        self.wheel_build_dir = self.env.build_root / build_dir_name
         self.wheel_data_dir = self.wheel_build_dir.joinpath(data_dir_name)
 
         self.wheel_fileset = FileSet(env)
@@ -394,7 +425,7 @@ class WheelMetadataBuilder(Builder):
     def __init__(
         self,
         env: Environment,
-        target: DirArg,
+        dist_info_dir: DirArg,
         tag: str,
         pyproject: PyProject,
         core_metadata: FileSource,
@@ -408,16 +439,25 @@ class WheelMetadataBuilder(Builder):
         # on the directory being built
         self.core_metadata = self.depends_file(core_metadata)
 
-        self.target = self.register_target(env.dir(target))
+        self.dist_info_dir = env.dir(dist_info_dir)
+
+        self.target = [
+            self.register_target(self.env.file(self.dist_info_dir.path / name))
+            for name in [
+                "METADATA",
+                "WHEEL",
+                "entry_points.txt",
+            ]
+        ]
 
     def build(self) -> None:
         tag = self.tag
-        datadir = self.target.path
+        dist_info_dir = self.dist_info_dir.path
 
-        datadir.mkdir(exist_ok=True)
+        dist_info_dir.mkdir(exist_ok=True)
 
         # Copy core metadata
-        datadir.joinpath("METADATA").write_text(self.core_metadata.path.read_text())
+        dist_info_dir.joinpath("METADATA").write_text(self.core_metadata.path.read_text())
 
         root_is_purelib = tag.endswith("-none-any")
 
@@ -428,7 +468,7 @@ class WheelMetadataBuilder(Builder):
         msg["Root-Is-Purelib"] = str(root_is_purelib).lower()
         for t in packaging.tags.parse_tag(tag):
             msg["Tag"] = str(t)
-        datadir.joinpath("WHEEL").write_text(str(msg))
+        dist_info_dir.joinpath("WHEEL").write_text(str(msg))
 
         # Build entry points file
         metadata = self.pyproject.project_metadata
@@ -455,7 +495,7 @@ class WheelMetadataBuilder(Builder):
             for key, val in items.items():
                 ini[group][key] = val
 
-        with datadir.joinpath("entry_points.txt").open("w", encoding="utf-8") as f:
+        with dist_info_dir.joinpath("entry_points.txt").open("w", encoding="utf-8") as f:
             ini.write(f)
 
 

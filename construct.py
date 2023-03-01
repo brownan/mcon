@@ -26,3 +26,5 @@ sdist.add_sources(
     ]
 )
 register_alias("sdist", sdist)
+
+register_alias("editable", dist.editable("py38-none-any", "."))

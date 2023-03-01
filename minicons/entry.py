@@ -262,7 +262,11 @@ class FileSet(Node, Iterable[File]):
                     elif path.is_dir():
                         entry = self.env.dir(path)
                     else:
-                        raise ValueError(f"Path {processing} not found.") from e
+                        raise ValueError(
+                            f"Path {processing} not found. If this path will be generated, "
+                            f"declare it either a file or directory with env.file() or "
+                            f"env.dir()"
+                        ) from e
                 self.depends.add(entry)
                 self._sources.append(entry)
             elif isinstance(processing, Iterable):

@@ -403,7 +403,7 @@ def set_current_execution(e: Optional[Execution]) -> None:
 def get_current_execution() -> Execution:
     global current_execution
     execution = current_execution
-    if not execution:
+    if execution is None:
         raise RuntimeError("No current execution")
     return execution
 
