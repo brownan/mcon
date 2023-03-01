@@ -174,7 +174,7 @@ def print_tree(
             for child in children:
                 if child in children_set:
                     if not depth_seq:
-                        new_depth_seq = [False]
+                        new_depth_seq = [True]
                     else:
                         new_depth_seq = depth_seq[:-1] + [not last_child, True]
                     to_visit.append((child, new_depth_seq, child is children[0]))

@@ -270,7 +270,7 @@ class Execution(MutableMapping[str, Any]):
             logger.info("All files up to date")
             return
 
-        # Build
+        # Start the build process
         built_nodes: Set[Node] = set()
         metadata_cache: Dict[Entry, Any] = {}
         for node in ordered_nodes:
@@ -314,6 +314,8 @@ class Execution(MutableMapping[str, Any]):
                 if isinstance(entry, Entry):
                     entry.prepare()
 
+        # Log the build message even if we're in dry-run mode. (The point is to see what
+        # would build)
         logger.info("Building %s", builder)
 
         if not dry_run:
