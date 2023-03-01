@@ -230,9 +230,16 @@ class Execution(MutableMapping[str, Any]):
         # Traverse the graph /upward/ so that nodes depending on other nodes propagate
         # correctly. (A FileSet whose builder depends on another FileSet requires
         # both to be built)
+        # Non-entry nodes that don't have builders are assumed to be non-dynamic, that is,
+        # the contents are statically defined at resolution time and are merely a container for
+        # multiple files.
         for node in reversed(ordered_nodes):
             if node in to_build:
-                to_build.update(d for d in edges[node] if d not in entry_nodes)
+                to_build.update(
+                    d
+                    for d in edges[node]
+                    if d not in entry_nodes and d.builder is not None
+                )
 
         return PreparedBuild(
             ordered_nodes=ordered_nodes,
@@ -307,10 +314,18 @@ class Execution(MutableMapping[str, Any]):
             # in topological order, we execute any nodes which have all their dependencies
             # built. This way we can execute separate paths of the DAG simultaneously.
             edges = prepared_build.edges
-            to_execute: Set[Node] = set(
-                node for node in ordered_nodes if node in to_build
-            )
-            ready_to_execute: Set[Node] = {node for node in to_execute if not edges[node]}
+            to_execute: Set[Node] = set(to_build)
+
+            # Find the initial set of nodes we can execute right now. If all dependencies
+            # are satisfied, then we can either consider the node already built or ready to
+            # be built, depending on whether the node has a builder and needs building.
+            ready_to_execute: Set[Node] = set()
+            for node in ordered_nodes:
+                if all(dep in built_nodes for dep in edges[node]):
+                    if node not in to_build:
+                        built_nodes.add(node)
+                    else:
+                        ready_to_execute.add(node)
 
             futures: Set[concurrent.futures.Future] = set()
             while True:
