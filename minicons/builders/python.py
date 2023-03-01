@@ -310,6 +310,7 @@ class Wheel:
     def add_sources(
         self,
         sources: FilesSource,
+        *,
         relative_to: str = "",
     ) -> None:
         fileset = InstallFiles(self.env, self.wheel_build_dir, sources, relative_to)
@@ -320,6 +321,7 @@ class Wheel:
         self,
         sources: FilesSource,
         category: str,
+        *,
         relative_to: str = "",
     ) -> None:
         fileset = InstallFiles(
@@ -363,6 +365,7 @@ class SDist:
     def add_sources(
         self,
         sources: FilesSource,
+        *,
         relative_to: str = "",
     ) -> None:
         destdir = self.sdist_build_root

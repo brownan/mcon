@@ -15,6 +15,9 @@ requires-python = ">= 3.8"
 [project.urls]
 "Source Code" = "https://github.com/brownan/minicons"
 
+[project.scripts]
+minicons = "minicons.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pre-commit",
