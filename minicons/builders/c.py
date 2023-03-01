@@ -1,8 +1,9 @@
 import dataclasses
+import shlex
 import subprocess
 from typing import Collection, Sequence
 
-from minicons import Environment, File, FilesSource
+from minicons import Environment, File, FileArg, FilesSource
 from minicons.builder import SingleFileBuilder
 
 
@@ -38,7 +39,7 @@ class CompiledObject(SingleFileBuilder):
     def __init__(
         self,
         env: Environment,
-        target: File,
+        target: FileArg,
         sources: FilesSource,
         compiler_config: CompilerConfig,
     ):
@@ -46,10 +47,13 @@ class CompiledObject(SingleFileBuilder):
         self.sources = self.depends_files(sources)
         self.compiler_config = compiler_config
 
+    def __str__(self) -> str:
+        return f"Compiling {self.target}"
+
     def build(self) -> None:
         conf = self.compiler_config
-        cmdline = [
-            conf.cc,
+        cmdline = shlex.split(conf.cc)
+        cmdline += [
             "-c",
             "-o",
             str(self.target.path),
@@ -74,13 +78,16 @@ class SharedLibrary(SingleFileBuilder):
         self.sources = self.depends_files(sources)
         self.compiler_config = compiler_config
 
+    def __str__(self) -> str:
+        return f"Linking {self.target}"
+
     def get_targets(self) -> File:
         return self.target
 
     def build(self) -> None:
         conf = self.compiler_config
-        cmdline = [
-            conf.cc,
+        cmdline = shlex.split(conf.cc)
+        cmdline += [
             "-o",
             str(self.target.path),
         ]

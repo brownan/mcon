@@ -23,7 +23,7 @@ from typing import (
 if TYPE_CHECKING:
     from minicons.builder import Builder
     from minicons.environment import Environment
-    from minicons.types import E, FilesSource
+    from minicons.types import E, FilesSource, StrPath
 
 M = TypeVar("M", bound="EntryMeta")
 
@@ -79,7 +79,7 @@ class Entry(Node, metaclass=EntryMeta):
     def __init__(
         self,
         env: "Environment",
-        path: Union[Path, str],
+        path: StrPath,
     ):
         super().__init__(env)
         self.path: Path = env.root.joinpath(path)
@@ -101,7 +101,7 @@ class Entry(Node, metaclass=EntryMeta):
         rel_path = str(self)
         return f"{cls_name}({rel_path!r})"
 
-    def relative_to(self, root: Union[str, Path] = "") -> str:
+    def relative_to(self, root: StrPath = "") -> str:
         """Returns the current file's path relative to the given root either within
         a build directory or the environment's root
 
@@ -128,7 +128,7 @@ class Entry(Node, metaclass=EntryMeta):
         new_rel_path = PurePath(file_rel_path).relative_to(root_rel_path)
         return str(new_rel_path)
 
-    def derive(self: "E", build_dir_name: str, new_ext: Optional[str] = None) -> "E":
+    def derive(self: "E", build_dir_name: StrPath, new_ext: Optional[str] = None) -> "E":
         """Create a derivative file/dir from this entry using Environment.get_build_path()"""
         new_path = self.env.get_build_path(self.path, build_dir_name, new_ext)
 
@@ -178,7 +178,7 @@ class Dir(Entry, Collection[File]):
     etc)
     """
 
-    def __init__(self, env: "Environment", path: Union[Path, str], glob: str = "**/*"):
+    def __init__(self, env: "Environment", path: StrPath, glob: str = "**/*"):
         super().__init__(env, path)
         self.glob_pattern = glob
 

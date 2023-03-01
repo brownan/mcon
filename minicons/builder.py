@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, List, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypeVar
 
 from minicons.entry import Dir, File, FileSet, Node
 from minicons.types import DirSource, FileArg, FileSource, FilesSource
@@ -127,13 +127,29 @@ class SingleFileBuilder(Builder, ABC):
         super().__init__(env)
         self.target: File = self.register_target(env.file(target))
 
+    def __str__(self) -> str:
+        return f"Building {self.target}"
+
 
 class Command(SingleFileBuilder):
     """Runs the given python function to generate a file"""
 
-    def __init__(self, env: Environment, target: FileArg, command: Callable[[File], Any]):
+    def __init__(
+        self,
+        env: Environment,
+        target: FileArg,
+        command: Callable[[File], Any],
+        str_func: Optional[Callable[[File], str]] = None,
+    ):
         super().__init__(env, target)
         self.command = command
+        self.str_func = str_func
+
+    def __str__(self) -> str:
+        if self.str_func:
+            return self.str_func(self.target)
+        else:
+            return f"Building {self.target}"
 
     def build(self) -> None:
         self.command(self.target)

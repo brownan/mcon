@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Any, Dict, Iterator, MutableMapping, Optional, Union
+from typing import Any, Dict, Iterator, MutableMapping, Optional
 
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
-from minicons.types import DirArg, FileArg
+from minicons.types import DirArg, FileArg, StrPath
 
 
 class Environment(MutableMapping[str, Any]):
@@ -76,7 +76,7 @@ class Environment(MutableMapping[str, Any]):
             return path
         return Dir(self, path)
 
-    def get_rel_path(self, src: Union[str, Path]) -> str:
+    def get_rel_path(self, src: StrPath) -> str:
         """Returns the path to the given source file relative to either the environment's
         root or the file's build directory
 
@@ -121,8 +121,8 @@ class Environment(MutableMapping[str, Any]):
 
     def get_build_path(
         self,
-        src: Union[str, Path],
-        build_dir: Union[str, Path],
+        src: StrPath,
+        build_dir: StrPath,
         new_ext: Optional[str] = None,
     ) -> Path:
         """Create a suitable path under self.build_root for files derived from src

@@ -139,9 +139,9 @@ def print_tree(
     # reverse this list.
     to_visit.reverse()
 
+    print("C = changed")
     print("O = out of date")
     print("B = to build")
-    print("C = changed")
 
     # Now walk this new graph printing out nodes as found, keeping track of the depth.
     while to_visit:
@@ -193,9 +193,9 @@ def _print_line(
     parts = []
     parts.append(
         "{} {} {} ".format(
+            "C" if changed else " ",
             "O" if out_of_date else " ",
             "B" if to_build else " ",
-            "C" if changed else " ",
         )
     )
 

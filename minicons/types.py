@@ -1,3 +1,4 @@
+from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Protocol, TypeVar, Union
 
@@ -17,6 +18,8 @@ __all__ = [
     "DirArg",
 ]
 
+StrPath = Union[str, PathLike[str]]
+
 # Argument types that can be passed in to register_alias() and build_targets()
 ArgTypes = Union[Path, "Node", "SourceLike", str]
 Args = Union[ArgTypes, Iterable[ArgTypes]]
@@ -26,15 +29,13 @@ Args = Union[ArgTypes, Iterable[ArgTypes]]
 # methods will resolve the given object to a File, Dir, or FileSet object respectively.
 FileSource = Union[
     "File",
-    str,
-    Path,
+    StrPath,
     "SourceLike[File]",
 ]
 FilesSource = Union[
     "Entry",
     "SourceLike",
-    "str",
-    Path,
+    StrPath,
     Iterable["FilesSource"],
 ]
 DirSource = Union[
@@ -44,8 +45,8 @@ DirSource = Union[
 
 # Types that Environment.file() and Environment.dir() take when constructing a new file or
 # dir.
-FileArg = Union[str, "Path", "File"]
-DirArg = Union[str, "Path", "Dir"]
+FileArg = Union[StrPath, "File"]
+DirArg = Union[StrPath, "Dir"]
 
 E = TypeVar("E", bound="Entry")
 

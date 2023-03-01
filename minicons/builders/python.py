@@ -8,7 +8,6 @@ import os.path
 import re
 from configparser import ConfigParser
 from email.message import Message
-from os import PathLike
 from pathlib import Path
 from typing import List, Sequence, Tuple, Union
 
@@ -22,7 +21,7 @@ from minicons import Builder, Environment, FileSet, SingleFileBuilder
 from minicons.builder import Command
 from minicons.builders.archive import TarBuilder, ZipBuilder
 from minicons.builders.install import Install, InstallFiles
-from minicons.types import DirArg, FileArg, FileSource, FilesSource
+from minicons.types import DirArg, FileArg, FileSource, FilesSource, StrPath
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -37,6 +36,36 @@ EXTRA_RE = re.compile("^([a-z0-9]|[a-z0-9]([a-z0-9-](?!--))*[a-z0-9])$")
 
 class PyProjectError(Exception):
     pass
+
+
+def get_binary_tag() -> str:
+    """Gets the most specific binary tag for the current machine"""
+    # This looks through sys_tags() for the first tag that doesn't use the manylinux platform.
+    # Why do we skip the manylinux platform?
+    #
+    # sys_tags() lists tags compatible with the current system in order. since
+    # the generic linux_x86_64 platform is not a precise enough tag to guarantee compatibility,
+    # the packaging library considers "manylinux" to be a higher priority for installation
+    # candidates.
+    #
+    # However, we are not choosing an installation candidate, we want to find a tag for the
+    # distribution being built, so our priorities are a bit different. Instead, it makes sense
+    # for linux builds to use the imprecise linux_x86_64 (or similar) platform, since
+    # we cannot programmatically guarantee platform compatibility with the manylinux spec.
+    # In the future, maybe there is some way to incorporate functionality from the "auditwheel"
+    # tool to automatically determine a more precise linux platform.
+    return str(
+        next(tag for tag in packaging.tags.sys_tags() if "manylinux" not in tag.platform)
+    )
+
+
+def get_pure_tag() -> str:
+    """Gets the tag for a pure-python wheel with no platform specific aspects compatible
+    with the current python version and up
+
+    """
+    interp_tag = f"py{packaging.tags.interpreter_version()}"
+    return f"{interp_tag}-none-any"
 
 
 @dataclasses.dataclass
@@ -59,7 +88,7 @@ class PyProject:
     file: Path
 
 
-def parse_pyproject_toml(file: PathLike) -> PyProject:
+def parse_pyproject_toml(file: StrPath) -> PyProject:
     """Reads in a pyproject.toml file, does some minimal normalization and validation"""
     parsed = toml.load(open(file))
     project_metadata = parsed["project"]
@@ -252,7 +281,14 @@ class Distribution:
 
     def wheel(self, tag: str) -> Wheel:
         """Returns a wheel builder"""
-        return Wheel(self.env, self.dist_dir, self.pyproject, tag, self.core_metadata)
+        return Wheel(
+            self.env,
+            self.dist_dir,
+            self.pyproject,
+            tag,
+            self.core_metadata,
+            f"wheel-{tag}",
+        )
 
     def sdist(self) -> SDist:
         """Returns an sdist builder"""
@@ -271,7 +307,7 @@ class Distribution:
             self.pyproject,
             tag,
             self.core_metadata,
-            build_dir_name="editable",
+            build_dir_name="wheel-editable",
         )
 
         pthfile = ""
@@ -296,11 +332,11 @@ class Wheel:
     def __init__(
         self,
         env: Environment,
-        distdir: PathLike,
+        distdir: StrPath,
         pyproject: PyProject,
         tag: str,
         core_metadata: FileSource,
-        build_dir_name: str = "wheel",
+        build_dir_name: str,
     ):
         self.env = env
 
@@ -370,7 +406,7 @@ class SDist:
     def __init__(
         self,
         env: Environment,
-        dist_dir: PathLike,
+        dist_dir: StrPath,
         pyproject: PyProject,
         core_metadata: FileSource,
     ):

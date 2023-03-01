@@ -316,7 +316,7 @@ class Execution(MutableMapping[str, Any]):
 
         # Log the build message even if we're in dry-run mode. (The point is to see what
         # would build)
-        logger.info("Building %s", builder)
+        logger.info(str(builder))
 
         if not dry_run:
             builder.build()
