@@ -21,7 +21,9 @@ __all__ = [
 ArgTypes = Union[Path, "Node", "SourceLike", str]
 Args = Union[ArgTypes, Iterable[ArgTypes]]
 
-# Types that Builder.depends_*() methods take
+# Types that Builder.depends_*() methods take when a builder is declaring a dependency on
+# some file, dir, or sourcelike object. The depends_file(), depends_dir(), and depends_files()
+# methods will resolve the given object to a File, Dir, or FileSet object respectively.
 FileSource = Union[
     "File",
     str,
@@ -40,7 +42,8 @@ DirSource = Union[
     "SourceLike[Dir]",
 ]
 
-# Types that Environment.file() and Environment.dir() take when constructing a new
+# Types that Environment.file() and Environment.dir() take when constructing a new file or
+# dir.
 FileArg = Union[str, "Path", "File"]
 DirArg = Union[str, "Path", "Dir"]
 

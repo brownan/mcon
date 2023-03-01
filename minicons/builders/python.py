@@ -20,8 +20,8 @@ import toml
 
 from minicons import Builder, Environment, FileSet, SingleFileBuilder
 from minicons.builders.archive import TarBuilder, ZipBuilder
-from minicons.builders.install import InstallFiles
-from minicons.types import DirArg, FileSource, FilesSource
+from minicons.builders.install import Install, InstallFiles
+from minicons.types import DirArg, FileArg, FileSource, FilesSource
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -240,24 +240,24 @@ class Distribution:
         self.version = self.pyproject.version
 
         # Core metadata is used for both source and wheel builds
-        self.core_metadata = CoreMetadataBuilder(env, self.pyproject)
-
-    def wheel(self, tag: str) -> WheelBuilder:
-        """Returns a wheel builder"""
-        return WheelBuilder(
-            self.env, self.dist_dir, self.pyproject, tag, self.core_metadata
+        self.core_metadata = CoreMetadataBuilder(
+            env, env.get_build_path("METADATA", ""), self.pyproject
         )
 
-    def sdist(self) -> SDistBuilder:
+    def wheel(self, tag: str) -> Wheel:
+        """Returns a wheel builder"""
+        return Wheel(self.env, self.dist_dir, self.pyproject, tag, self.core_metadata)
+
+    def sdist(self) -> SDist:
         """Returns an sdist builder"""
-        return SDistBuilder(self.env, self.dist_dir, self.pyproject, self.core_metadata)
+        return SDist(self.env, self.dist_dir, self.pyproject, self.core_metadata)
 
     def editable(self) -> None:
         """Returns an editable wheel builder"""
         pass
 
 
-class WheelBuilder:
+class Wheel:
     def __init__(
         self,
         env: Environment,
@@ -328,7 +328,7 @@ class WheelBuilder:
         self.wheel_fileset.add(fileset)
 
 
-class SDistBuilder:
+class SDist:
     def __init__(
         self,
         env: Environment,
@@ -352,7 +352,13 @@ class SDistBuilder:
             sdist_build_dir,
             compression="gz",
         )
-        self.sdist_fileset.add(core_metadata)
+        self.sdist_fileset.add(
+            Install(
+                env,
+                self.sdist_build_root / "PKG-INFO",
+                core_metadata,
+            )
+        )
 
     def add_sources(
         self,
@@ -365,8 +371,8 @@ class SDistBuilder:
 
 
 class CoreMetadataBuilder(SingleFileBuilder):
-    def __init__(self, env: Environment, pyproject: PyProject):
-        super().__init__(env, env.get_build_path("METADATA", ""))
+    def __init__(self, env: Environment, target: FileArg, pyproject: PyProject):
+        super().__init__(env, target)
         self.pyproject = pyproject
         self.core_metadata, additital_deps = build_core_metadata(pyproject)
         self.depends_file(pyproject.file)
