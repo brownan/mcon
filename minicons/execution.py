@@ -1,5 +1,7 @@
+import concurrent.futures
 import dataclasses
 import json
+import os
 import sqlite3
 from collections import defaultdict
 from logging import getLogger
@@ -247,6 +249,7 @@ class Execution(MutableMapping[str, Any]):
         targets: Optional[Args] = None,
         prepared_build: Optional[PreparedBuild] = None,
         dry_run: bool = False,
+        parallel: Union[bool, int] = False,
     ) -> None:
         """Build the given targets
 
@@ -262,6 +265,11 @@ class Execution(MutableMapping[str, Any]):
         elif targets is not None:
             raise ValueError("Targets and prepared_build cannot be specified together")
 
+        if parallel is True:
+            parallel = os.cpu_count() or 1
+        elif parallel is False:
+            parallel = 1
+
         ordered_nodes = prepared_build.ordered_nodes
         entry_dependencies = prepared_build.entry_dependencies
         to_build = prepared_build.to_build
@@ -270,39 +278,108 @@ class Execution(MutableMapping[str, Any]):
             logger.info("All files up to date")
             return
 
+        executor: Optional[concurrent.futures.Executor]
+        if parallel > 1:
+            executor = concurrent.futures.ThreadPoolExecutor(parallel)
+        else:
+            executor = None
+
         # Start the build process
         built_nodes: Set[Node] = set()
         metadata_cache: Dict[Entry, Any] = {}
-        for node in ordered_nodes:
-            if node in to_build and node not in built_nodes and node.builder is not None:
-                builder = node.builder
-                self._call_builder(builder, dry_run)
-                built_nodes.update(builder.builds)
 
-                if not dry_run:
-                    for built_entry in builder.builds:
-                        if isinstance(built_entry, Entry):
-                            # Before updating this new entry's metadata, gather the
-                            # info for all its dependencies
-                            for dep in entry_dependencies[built_entry]:
-                                if dep not in metadata_cache:
-                                    metadata_cache[dep] = dep.get_metadata()
-                            # Now update this entry's cached metadata
-                            self._set_metadata(
-                                built_entry.path,
-                                self._metadata_signature(
-                                    metadata_cache, entry_dependencies[built_entry]
-                                ),
+        if executor is None:
+            for node in ordered_nodes:
+                if (
+                    node in to_build
+                    and node not in built_nodes
+                    and node.builder is not None
+                ):
+                    builder = node.builder
+                    self._call_builder(builder, dry_run)
+                    built_nodes.update(builder.builds)
+                    if not dry_run:
+                        self._update_builder_metadata(
+                            builder, entry_dependencies, metadata_cache
+                        )
+        else:
+            # The strategy here is a bit different. Instead of simply executing nodes
+            # in topological order, we execute any nodes which have all their dependencies
+            # built. This way we can execute separate paths of the DAG simultaneously.
+            edges = prepared_build.edges
+            to_execute: Set[Node] = set(
+                node for node in ordered_nodes if node in to_build
+            )
+            ready_to_execute: Set[Node] = {node for node in to_execute if not edges[node]}
+
+            futures: Set[concurrent.futures.Future] = set()
+            while True:
+                if ready_to_execute:
+                    node = ready_to_execute.pop()
+                    assert node.builder is not None
+                    builder = node.builder
+                    logger.debug("Submitting builder job: %s", builder)
+                    ready_to_execute.difference_update(builder.builds)
+                    to_execute.difference_update(builder.builds)
+                    # Sanity check if we're about to call a builder but not all its targets
+                    # have their dependencies satisfied yet. In other words, if a node is ready,
+                    # all of its builder's nodes should also be ready and in ready_to_execute.
+                    # If any are still in to_execute, that's a bug.
+                    # This situation shouldn't happen unless there's a bug since all nodes have
+                    # implicit dependencies on their builder. Those dependencies have
+                    # already been merged into the `edges` mapping by _traverse_node_graph().
+                    if any(
+                        dep not in built_nodes
+                        for builds in builder.builds
+                        for dep in edges[builds]
+                    ):
+                        raise RuntimeError(
+                            f"About to execute builder to build node {node} but "
+                            f"other target node(s) "
+                            f"{built_nodes.difference(builder.builds)} have "
+                            f"un-met dependencies. This probably indicates a bug "
+                            f"in the dependency resolution code."
+                        )
+                    futures.add(executor.submit(self._call_builder, builder, dry_run))
+                elif futures:
+                    done, futures = concurrent.futures.wait(
+                        futures, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    f: concurrent.futures.Future
+                    for f in done:
+                        builder = f.result()
+                        built_nodes.update(builder.builds)
+                        if not dry_run:
+                            self._update_builder_metadata(
+                                builder, entry_dependencies, metadata_cache
                             )
 
-    def _metadata_signature(
-        self,
-        metadata: Mapping[Entry, Any],
-        nodes: Iterable[Entry],
-    ) -> Dict:
-        return {str(e.path): metadata[e] for e in nodes}
+                        # Now that the nodes from builder.builds have been built, scan through the
+                        # other nodes waiting to be executed and see if any of them have all their
+                        # dependencies satisfied.
+                        for node in ordered_nodes:
+                            if (
+                                all(dep in built_nodes for dep in edges[node])
+                                and node not in built_nodes
+                            ):
+                                if node.builder is not None:
+                                    ready_to_execute.add(node)
+                                else:
+                                    built_nodes.add(node)
+                else:
+                    # Nothing is executing and nothing is ready to build
+                    break
 
-    def _call_builder(self, builder: "Builder", dry_run: bool) -> None:
+            if to_execute:
+                raise RuntimeError(
+                    f"Error resolving dependency graph. Nodes didn't execute: {to_execute}"
+                )
+
+    def _call_builder(
+        self,
+        builder: Builder,
+        dry_run: bool,
+    ) -> Builder:
         """Calls the given builder to build its entries"""
         # First remove its entries and prepare them:
         if not dry_run:
@@ -326,6 +403,36 @@ class Execution(MutableMapping[str, Any]):
                 if isinstance(entry, Entry) and not entry.path.exists():
                     raise DependencyError(f"Builder {builder} didn't output {entry}")
 
+        return builder
+
+    def _update_builder_metadata(
+        self,
+        builder: Builder,
+        entry_dependencies: Mapping[Node, Collection[Entry]],
+        metadata_cache: Dict[Entry, Any],
+    ) -> None:
+        for built_entry in builder.builds:
+            if isinstance(built_entry, Entry):
+                # Before updating this new entry's metadata, gather the
+                # individual file metadata for all its dependencies
+                for dep in entry_dependencies[built_entry]:
+                    if dep not in metadata_cache:
+                        metadata_cache[dep] = dep.get_metadata()
+                # Now update this entry's cached metadata
+                self._set_metadata(
+                    built_entry.path,
+                    self._metadata_signature(
+                        metadata_cache, entry_dependencies[built_entry]
+                    ),
+                )
+
+    def _metadata_signature(
+        self,
+        metadata: Mapping[Entry, Any],
+        nodes: Iterable[Entry],
+    ) -> Dict:
+        return {str(e.path): metadata[e] for e in nodes}
+
 
 def _traverse_node_graph(
     targets: List["Node"],
@@ -344,9 +451,20 @@ def _traverse_node_graph(
         reachable_entries.append(visiting)
         seen.add(visiting)
 
-        dependencies = list(visiting.depends)
+        # A node depends on both its explicit dependencies and also its builder's dependencies
+        dependencies = set(visiting.depends)
         if visiting.builder:
-            dependencies.extend(visiting.builder.depends)
+            dependencies.update(visiting.builder.depends)
+
+            # A node ALSO implicitly depends on all its siblings' dependencies (sibling nodes
+            # being nodes built by the same builder).
+            # Say a node and its builder each have no dependencies, but the builder outputs another
+            # node which DOES have dependencies. Those dependencies must be built before the
+            # builder is run (and the no-dependency node is built)
+            # This can happen if a builder builds a fileset, and the fileset contains nodes
+            # which themselves have dependencies.
+            for sibling in visiting.builder.builds:
+                dependencies.update(sibling.depends)
 
         for dep in dependencies:
             edges[visiting].append(dep)

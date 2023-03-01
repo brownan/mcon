@@ -287,7 +287,7 @@ class Distribution:
             self.pyproject,
             tag,
             self.core_metadata,
-            f"wheel-{tag}",
+            f"wheel.{tag}",
         )
 
     def sdist(self) -> SDist:

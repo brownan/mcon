@@ -107,7 +107,7 @@ def execute_construct(
     if tree:
         print_tree(prepared, all_nodes=tree == "all")
 
-    execution.build_targets(prepared_build=prepared, dry_run=dry_run)
+    execution.build_targets(prepared_build=prepared, dry_run=dry_run, parallel=True)
 
 
 def print_tree(
