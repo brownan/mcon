@@ -228,8 +228,13 @@ def build_core_metadata(pyproject: PyProject) -> Tuple[str, List[Path]]:
 class Distribution:
     """Sets up the builders for building a wheel and sdist from a python distribution"""
 
-    def __init__(self, env: Environment, dist_dir: Union[str, Path] = "dist"):
+    def __init__(self, env: Environment, dist_dir: Union[str, Path, None] = None):
         self.env = env
+        if dist_dir is None:
+            if "WHEEL_BUILD_DIR" in self.env:
+                dist_dir = self.env["WHEEL_BUILD_DIR"]
+            else:
+                dist_dir = "dist"
         self.dist_dir = self.env.root.joinpath(dist_dir).resolve()
 
         # Parse pyproject.toml file in the current directory

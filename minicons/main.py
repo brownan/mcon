@@ -69,27 +69,45 @@ def main() -> None:
     root.addHandler(handler)
 
     construct_path = Path(args["construct"]).resolve()
-    contents = open(construct_path, "r").read()
-    code = compile(contents, args["construct"], "exec", optimize=0)
+    execution = minicons.execution.Execution(construct_path.parent)
+    execute_construct(
+        construct_path,
+        execution,
+        args["target"],
+        args["always_build"],
+        args["tree"],
+        args["dry_run"],
+    )
 
-    current_execution = minicons.execution.Execution(construct_path.parent)
-    minicons.execution.set_current_execution(current_execution)
+
+def execute_construct(
+    construct_path: Path,
+    execution: minicons.execution.Execution,
+    targets: List[str],
+    always_build: bool = False,
+    tree: Union[bool, str] = False,
+    dry_run: bool = False,
+) -> None:
+    contents = open(construct_path, "r").read()
+    code = compile(contents, construct_path.name, "exec", optimize=0)
+
+    minicons.execution.set_current_execution(execution)
     try:
         exec(code, {})
     finally:
         minicons.execution.set_current_execution(None)
 
-    prepared = current_execution.prepare_build(args["target"])
+    prepared = execution.prepare_build(targets)
 
-    if args["always_build"]:
+    if always_build:
         prepared.to_build = set(
             n for n in prepared.ordered_nodes if n.builder is not None
         )
 
-    if args["tree"]:
-        print_tree(prepared, all_nodes=args["tree"] == "all")
+    if tree:
+        print_tree(prepared, all_nodes=tree == "all")
 
-    current_execution.build_targets(prepared_build=prepared, dry_run=args["dry_run"])
+    execution.build_targets(prepared_build=prepared, dry_run=dry_run)
 
 
 def print_tree(

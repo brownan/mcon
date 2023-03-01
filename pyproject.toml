@@ -1,3 +1,11 @@
+[build-system]
+build-backend = "minicons.pybuild"
+requires = [
+    "toml",
+    "packaging",
+]
+backend-path = ["."]
+
 [project]
 name = "minicons"
 version = "0.0.1"
@@ -11,6 +19,10 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
 ]
 requires-python = ">= 3.8"
+dependencies = [
+    "toml",
+    "packaging",
+]
 
 [project.urls]
 "Source Code" = "https://github.com/brownan/minicons"
@@ -24,6 +36,7 @@ dev = [
     "mypy",
     "sphinx",
     "furo",
+    "types-toml",
 ]
 
 [tool.black]

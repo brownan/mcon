@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Dict, Iterator, MutableMapping, Optional, Union
 
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
 from minicons.types import DirArg, FileArg
 
 
-class Environment:
+class Environment(MutableMapping[str, Any]):
     """An Environment object controls the context in which Builders live
 
     An Environment exists to define the root directory and build directory for Builders
@@ -37,6 +37,28 @@ class Environment:
         self.execution: Execution = execution
         self.root = root or self.execution.root
         self.build_root = build_root or self.root.joinpath("build")
+
+        self._env_vars: Dict[str, Any] = {}
+
+    def __getitem__(self, item: str) -> Any:
+        try:
+            return self._env_vars[item]
+        except KeyError:
+            pass
+        return self.execution[item]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._env_vars[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self._env_vars[key]
+
+    def __iter__(self) -> Iterator[str]:
+        keys = self._env_vars.keys() | self.execution.keys()
+        return iter(keys)
+
+    def __len__(self) -> int:
+        return len(self._env_vars.keys() | self.execution.keys())
 
     def file(
         self,

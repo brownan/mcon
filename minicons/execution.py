@@ -12,6 +12,7 @@ from typing import (
     Iterator,
     List,
     Mapping,
+    MutableMapping,
     Optional,
     Sequence,
     Set,
@@ -41,7 +42,7 @@ class PreparedBuild:
     targets: Sequence[Node]
 
 
-class Execution:
+class Execution(MutableMapping[str, Any]):
     """An execution is the top level object which controls the build process
 
     An execution object keeps track of all the builders, entries, and aliases. Environments
@@ -70,6 +71,23 @@ class Execution:
             file_metadata (path text PRIMARY KEY, metadata text)
             """
         )
+
+        self._env_vars: Dict[str, Any] = {}
+
+    def __getitem__(self, item: str) -> Any:
+        return self._env_vars[item]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._env_vars[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self._env_vars[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._env_vars)
+
+    def __len__(self) -> int:
+        return len(self._env_vars)
 
     def _get_metadata(self, path: Path) -> Optional[Dict[str, Any]]:
         cursor = self.metadata_db.execute(
