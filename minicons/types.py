@@ -9,14 +9,14 @@ if TYPE_CHECKING:
 __all__ = [
     "ArgTypes",
     "Args",
-    "FileSource",
-    "FilesSource",
-    "DirSource",
+    "FileLike",
+    "FileSetLike",
+    "DirLike",
     "E",
     "SourceType",
     "SourceLike",
-    "FileArg",
-    "DirArg",
+    "FileLike",
+    "DirLike",
     "StrPath",
 ]
 
@@ -26,29 +26,28 @@ StrPath = Union[str, "PathLike[str]"]
 ArgTypes = Union[Path, "Node", "SourceLike", str]
 Args = Union[ArgTypes, Iterable[ArgTypes]]
 
-# Types that Builder.depends_*() methods take when a builder is declaring a dependency on
-# some file, dir, or sourcelike object. The depends_file(), depends_dir(), and depends_files()
-# methods will resolve the given object to a File, Dir, or FileSet object respectively.
-FileSource = Union[
+# These types are the types accepted by various methods and are translated to File,
+# FileSet, or Dir objects respectively.
+#
+# FileLike is accepted by Environment.file() and Builder.depends_file()
+# FileSetLike is accepted by Builder.depends_files() and FileSet.add()
+# DirLike is accepted by Environment.dir() and Builder.depends_dir()
+FileLike = Union[
     "File",
     StrPath,
     "SourceLike[File]",
 ]
-FilesSource = Union[
+FileSetLike = Union[
     "Entry",
     "SourceLike",
     StrPath,
-    Iterable["FilesSource"],
+    Iterable["FileSetLike"],
 ]
-DirSource = Union[
+DirLike = Union[
     "Dir",
+    StrPath,
     "SourceLike[Dir]",
 ]
-
-# Types that Environment.file() and Environment.dir() take when constructing a new file or
-# dir.
-FileArg = Union[StrPath, "File"]
-DirArg = Union[StrPath, "Dir"]
 
 E = TypeVar("E", bound="Entry")
 

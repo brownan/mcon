@@ -1,13 +1,13 @@
 import shutil
 
-from minicons import DirArg, Environment, FileArg, FileSet, FileSource, FilesSource
+from minicons import DirLike, Environment, FileLike, FileSet, FileSetLike
 from minicons.builder import Builder, SingleFileBuilder
 
 
 class Install(SingleFileBuilder):
     """Copy a single file from source ta target"""
 
-    def __init__(self, env: Environment, target: FileArg, source: FileSource):
+    def __init__(self, env: Environment, target: FileLike, source: FileLike):
         super().__init__(env, target)
         self.source = self.depends_file(source)
 
@@ -26,8 +26,8 @@ class InstallFiles(Builder):
     def __init__(
         self,
         env: Environment,
-        destdir: DirArg,
-        sources: FilesSource,
+        destdir: DirLike,
+        sources: FileSetLike,
         root: str = ".",
     ) -> None:
         super().__init__(env)

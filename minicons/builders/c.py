@@ -3,7 +3,7 @@ import shlex
 import subprocess
 from typing import Collection, Sequence
 
-from minicons import Environment, File, FileArg, FilesSource
+from minicons import Environment, File, FileLike, FileSetLike
 from minicons.builder import SingleFileBuilder
 
 
@@ -39,8 +39,8 @@ class CompiledObject(SingleFileBuilder):
     def __init__(
         self,
         env: Environment,
-        target: FileArg,
-        sources: FilesSource,
+        target: FileLike,
+        sources: FileSetLike,
         compiler_config: CompilerConfig,
     ):
         super().__init__(env, target)
@@ -71,7 +71,7 @@ class SharedLibrary(SingleFileBuilder):
         self,
         env: Environment,
         target: File,
-        sources: FilesSource,
+        sources: FileSetLike,
         compiler_config: CompilerConfig,
     ):
         super().__init__(env, target)

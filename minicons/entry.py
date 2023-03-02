@@ -17,13 +17,12 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
-    Union,
 )
 
 if TYPE_CHECKING:
     from minicons.builder import Builder
     from minicons.environment import Environment
-    from minicons.types import E, FilesSource, StrPath
+    from minicons.types import E, FileSetLike, StrPath
 
 M = TypeVar("M", bound="EntryMeta")
 
@@ -47,7 +46,7 @@ class EntryMeta(ABCMeta):
     def __call__(
         cls,
         env: Environment,
-        path: Union[Path, str],
+        path: StrPath,
         *args: Tuple,
         **kwargs: Dict,
     ) -> Entry:
@@ -238,7 +237,7 @@ class FileSet(Node, Iterable[File]):
 
     """
 
-    def __init__(self, env: Environment, sources: Optional[FilesSource] = None):
+    def __init__(self, env: Environment, sources: Optional[FileSetLike] = None):
         super().__init__(env)
         self._sources: List[Node] = []
         if sources is not None:
@@ -247,9 +246,9 @@ class FileSet(Node, Iterable[File]):
     def __str__(self) -> str:
         return "Abstract FileSet"
 
-    def add(self, sources: FilesSource) -> None:
+    def add(self, sources: FileSetLike) -> None:
         # Flatten list and resolve SourceLike objects to find all Nodes
-        to_process: List[FilesSource] = [sources]
+        to_process: List[FileSetLike] = [sources]
         while to_process:
             processing = to_process.pop()
             if hasattr(processing, "target"):

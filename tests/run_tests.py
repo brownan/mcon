@@ -9,7 +9,7 @@ from minicons.builders.c import CompilerConfig, SharedLibrary
 from minicons.entry import File
 from minicons.environment import Environment
 from minicons.execution import Execution
-from minicons.types import DirArg, FileArg, FileSource, SourceLike
+from minicons.types import DirLike, FileLike, SourceLike
 
 
 class Common(TestCase):
@@ -46,13 +46,13 @@ class MiniconsTests(Common):
 
         # Make sure this file isn't built again if re-run
         prepared_build = self.execution.prepare_build(builder)
-        self.assertFalse(prepared_build.to_build)
+        self.assertFalse(prepared_build.get_to_build())
 
     def test_files_builder(self) -> None:
         """Tests a builder which outputs multiple files"""
 
         class TestBuilder(Builder):
-            def __init__(self, env: Environment, f1: FileArg, f2: FileArg):
+            def __init__(self, env: Environment, f1: FileLike, f2: FileLike):
                 super().__init__(env)
                 self.f1 = self.register_target(env.file(f1))
                 self.f2 = self.register_target(env.file(f2))
@@ -80,7 +80,7 @@ class MiniconsTests(Common):
         """Tests a builder which outputs a directory"""
 
         class TestBuilder(Builder):
-            def __init__(self, env: Environment, d: DirArg):
+            def __init__(self, env: Environment, d: DirLike):
                 super().__init__(env)
                 self.target = self.register_target(env.dir(d))
 
@@ -104,9 +104,7 @@ class MiniconsTests(Common):
         """Tests the dependency checker"""
 
         class TestBuilder(SingleFileBuilder):
-            def __init__(
-                self, env: Environment, target: File, source: FileSource
-            ) -> None:
+            def __init__(self, env: Environment, target: File, source: FileLike) -> None:
                 super().__init__(env, target)
                 self.source = self.depends_file(source)
 
@@ -128,7 +126,7 @@ class MiniconsTests(Common):
 
         # No rebuild here
         prepared = self.execution.prepare_build(builder)
-        self.assertFalse(prepared.to_build)
+        self.assertFalse(prepared.get_to_build())
         self.assertEqual(prepared.edges[outfile], [infile])
 
         inpath.write_text("Version 2")
@@ -136,7 +134,7 @@ class MiniconsTests(Common):
         # reliable if the tests run too fast
         os.utime(inpath, (100, 100))
         prepared = self.execution.prepare_build(builder)
-        self.assertEqual(prepared.to_build, {outfile})
+        self.assertEqual(prepared.get_to_build(), {outfile})
 
         self.execution.build_targets(prepared_build=prepared)
         self.assertEqual(outpath.read_text(), "Version 2")

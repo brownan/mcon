@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypeVar
 
 from minicons.entry import Dir, File, FileSet, Node
-from minicons.types import DirSource, FileArg, FileSource, FilesSource
+from minicons.types import DirLike, FileLike, FileSetLike
 
 if TYPE_CHECKING:
     from minicons.environment import Environment
@@ -85,23 +85,16 @@ class Builder(ABC):
 
         return node
 
-    def depends_file(self, source: FileSource) -> File:
+    def depends_file(self, source: FileLike) -> File:
         """Resolves and registers the given source as a dependency of this builder"""
-        if hasattr(source, "target"):
-            if not isinstance(source.target, File):
-                raise TypeError(f"Wrong target type {source!r}")
-            file = source.target
-        else:
-            file = self.env.file(source)
+        file = self.env.file(source)
         self.depends.append(file)
         return file
 
-    def depends_files(self, sources: FilesSource) -> FileSet:
-        """Resolves and registers the given sources as dependencies of this builder
+    def depends_files(self, sources: FileSetLike) -> FileSet:
+        """Resolves and registers the given sources as dependencies of this builder,
+        returning a new FileSet
 
-        Resolves the given sources and returns a Collection of File objects.
-        This is typically either a list of files or a Dir, but returned objects
-        are not guaranteed to be exactly those types.
 
         """
         fileset = FileSet(self.env)
@@ -109,21 +102,16 @@ class Builder(ABC):
         fileset.add(sources)
         return fileset
 
-    def depends_dir(self, source: DirSource) -> "Dir":
+    def depends_dir(self, source: DirLike) -> "Dir":
         """Resolves and registers the given Dir as a dependency of this builder"""
-        if hasattr(source, "target"):
-            if not isinstance(source.target, Dir):
-                raise TypeError(f"Wrong target type: {source!r}")
-            d = source.target
-        else:
-            d = self.env.dir(source)
+        d = self.env.dir(source)
         self.depends.append(d)
         return d
 
 
 # Below are some convenience subclasses for common builder patterns
 class SingleFileBuilder(Builder, ABC):
-    def __init__(self, env: Environment, target: FileArg):
+    def __init__(self, env: Environment, target: FileLike):
         super().__init__(env)
         self.target: File = self.register_target(env.file(target))
 
@@ -137,13 +125,16 @@ class Command(SingleFileBuilder):
     def __init__(
         self,
         env: Environment,
-        target: FileArg,
+        target: FileLike,
+        sources: Optional[FileSetLike],
         command: Callable[[File], Any],
         str_func: Optional[Callable[[File], str]] = None,
     ):
         super().__init__(env, target)
         self.command = command
         self.str_func = str_func
+        if sources is not None:
+            self.depends_files(sources)
 
     def __str__(self) -> str:
         if self.str_func:

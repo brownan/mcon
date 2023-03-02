@@ -3,7 +3,7 @@ from typing import Any, Dict, Iterator, MutableMapping, Optional
 
 from minicons.entry import Dir, File
 from minicons.execution import Execution, get_current_execution
-from minicons.types import DirArg, FileArg, StrPath
+from minicons.types import DirLike, FileLike, StrPath
 
 
 class Environment(MutableMapping[str, Any]):
@@ -62,19 +62,23 @@ class Environment(MutableMapping[str, Any]):
 
     def file(
         self,
-        path: FileArg,
+        source: FileLike,
     ) -> "File":
-        if isinstance(path, File):
-            return path
-        return File(self, path)
+        if hasattr(source, "target"):
+            source = source.target
+        if isinstance(source, File):
+            return source
+        return File(self, source)
 
     def dir(
         self,
-        path: DirArg,
+        source: DirLike,
     ) -> "Dir":
-        if isinstance(path, Dir):
-            return path
-        return Dir(self, path)
+        if hasattr(source, "target"):
+            source = source.target
+        if isinstance(source, Dir):
+            return source
+        return Dir(self, source)
 
     def get_rel_path(self, src: StrPath) -> str:
         """Returns the path to the given source file relative to either the environment's

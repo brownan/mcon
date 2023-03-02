@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import ContextManager, Generic, TypeVar, Union
 
-from minicons import Environment, FileArg, FilesSource, SingleFileBuilder
+from minicons import Environment, FileLike, FileSetLike, SingleFileBuilder
 
 A = TypeVar("A", bound=ContextManager)
 
@@ -13,8 +13,8 @@ class ArchiveCommon(SingleFileBuilder, Generic[A], ABC):
     def __init__(
         self,
         env: Environment,
-        target: FileArg,
-        sources: FilesSource,
+        target: FileLike,
+        sources: FileSetLike,
         archive_root: Union[str, Path],
     ) -> None:
         super().__init__(env, target)
@@ -52,8 +52,8 @@ class TarBuilder(ArchiveCommon[tarfile.TarFile]):
     def __init__(
         self,
         env: Environment,
-        target: FileArg,
-        sources: FilesSource,
+        target: FileLike,
+        sources: FileSetLike,
         archive_root: Union[str, Path],
         compression: str = "",
     ):

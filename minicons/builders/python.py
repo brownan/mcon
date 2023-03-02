@@ -21,7 +21,7 @@ from minicons import Builder, Environment, FileSet, SingleFileBuilder
 from minicons.builder import Command
 from minicons.builders.archive import TarBuilder, ZipBuilder
 from minicons.builders.install import Install, InstallFiles
-from minicons.types import DirArg, FileArg, FileSource, FilesSource, StrPath
+from minicons.types import DirLike, FileLike, FileSetLike, StrPath
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -294,7 +294,7 @@ class Distribution:
         """Returns an sdist builder"""
         return SDist(self.env, self.dist_dir, self.pyproject, self.core_metadata)
 
-    def editable(self, tag: str, paths: Union[str, Sequence[str]]) -> FileSource:
+    def editable(self, tag: str, paths: Union[str, Sequence[str]]) -> FileLike:
         """Returns an editable wheel builder"""
         if isinstance(paths, str):
             paths = [paths]
@@ -320,6 +320,7 @@ class Distribution:
         file = Command(
             self.env,
             wheel.wheel_build_dir / pthname,
+            None,
             lambda f: f.path.write_text(pthfile),
         )
         wheel.wheel_fileset.add(file)
@@ -335,7 +336,7 @@ class Wheel:
         distdir: StrPath,
         pyproject: PyProject,
         tag: str,
-        core_metadata: FileSource,
+        core_metadata: FileLike,
         build_dir_name: str,
     ):
         self.env = env
@@ -381,7 +382,7 @@ class Wheel:
 
     def add_sources(
         self,
-        sources: FilesSource,
+        sources: FileSetLike,
         *,
         relative_to: str = "",
     ) -> None:
@@ -391,7 +392,7 @@ class Wheel:
 
     def add_data(
         self,
-        sources: FilesSource,
+        sources: FileSetLike,
         category: str,
         *,
         relative_to: str = "",
@@ -408,7 +409,7 @@ class SDist:
         env: Environment,
         dist_dir: StrPath,
         pyproject: PyProject,
-        core_metadata: FileSource,
+        core_metadata: FileLike,
     ):
         self.env = env
         dist_dir = env.root.joinpath(dist_dir)
@@ -436,7 +437,7 @@ class SDist:
 
     def add_sources(
         self,
-        sources: FilesSource,
+        sources: FileSetLike,
         *,
         relative_to: str = "",
     ) -> None:
@@ -446,7 +447,7 @@ class SDist:
 
 
 class CoreMetadataBuilder(SingleFileBuilder):
-    def __init__(self, env: Environment, target: FileArg, pyproject: PyProject):
+    def __init__(self, env: Environment, target: FileLike, pyproject: PyProject):
         super().__init__(env, target)
         self.pyproject = pyproject
         self.core_metadata, additital_deps = build_core_metadata(pyproject)
@@ -461,10 +462,10 @@ class WheelMetadataBuilder(Builder):
     def __init__(
         self,
         env: Environment,
-        dist_info_dir: DirArg,
+        dist_info_dir: DirLike,
         tag: str,
         pyproject: PyProject,
-        core_metadata: FileSource,
+        core_metadata: FileLike,
     ):
         super().__init__(env)
         self.tag = tag
