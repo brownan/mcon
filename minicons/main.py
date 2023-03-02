@@ -100,9 +100,7 @@ def execute_construct(
     prepared = execution.prepare_build(targets)
 
     if always_build:
-        prepared.to_build = set(
-            n for n in prepared.ordered_nodes if n.builder is not None
-        )
+        prepared.out_of_date = prepared.buildable_entries
 
     if tree:
         print_tree(prepared, all_nodes=tree == "all")
@@ -118,7 +116,7 @@ def print_tree(
     ordered_nodes = build.ordered_nodes
     edges = build.edges
     out_of_date = build.out_of_date
-    to_build = build.to_build
+    to_build = build.get_to_build()
     changed = build.changed
 
     new_edges: Dict[Node, List[Node]] = {e: list(d) for e, d in edges.items()}

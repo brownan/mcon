@@ -7,6 +7,7 @@ from collections import defaultdict
 from logging import getLogger
 from pathlib import Path
 from typing import (
+    AbstractSet,
     Any,
     Collection,
     Dict,
@@ -36,12 +37,47 @@ class DependencyError(Exception):
 @dataclasses.dataclass
 class PreparedBuild:
     ordered_nodes: Sequence[Node]
+    buildable_entries: Set[Entry]
     edges: Mapping[Node, Collection[Node]]
     out_of_date: Collection[Entry]
-    to_build: Collection[Node]
     changed: Collection[Node]
     entry_dependencies: Mapping[Node, Collection[Entry]]
     targets: Sequence[Node]
+
+    def get_to_build(self) -> AbstractSet[Node]:
+        """From the out of date collection of entries, calculate and return the full list
+        of nodes that need building (whether that node actually defines a builder)
+
+        This will include the out of date entries, and also any nodes that depend on them,
+        and also any other nodes that must be built in order to create the FileSet objects
+        for other builders.
+
+        """
+        # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
+        # rebuilt. While such nodes are usually also detected as outdated above, they may
+        # not be in the case of an interrupted build where e.g. one dependent node
+        # got built but not another. But we don't assume a builder is purely functional,
+        # so if a builder runs, we run all descendent builders.
+        # Also, a common case is non-Entry nodes, which will never be detected by the above
+        # metadata check, because non-entry nodes don't have saved metadata
+        to_build: Set[Node] = set(self.out_of_date)
+        for node in self.ordered_nodes:
+            if any(d in to_build for d in self.edges[node]):
+                to_build.add(node)
+
+        # Nodes which depend on a non-Entry node require that dependent node to be rebuilt.
+        # This is because a non-Entry node's contents are not defined until its builder
+        # builds it. For example, a FileSet is used to contain a set of files not known
+        # statically. So its builder must build it before it can be used by a downstream
+        # dependent builder.
+        # Traverse the graph /upward/ so that nodes depending on other nodes propagate
+        # correctly. (A FileSet whose builder depends on another FileSet requires
+        # both to be built)
+        for node in reversed(self.ordered_nodes):
+            if node in to_build:
+                to_build.update(d for d in self.edges[node] if not isinstance(d, Entry))
+
+        return to_build
 
 
 class Execution(MutableMapping[str, Any]):
@@ -184,7 +220,7 @@ class Execution(MutableMapping[str, Any]):
         for entry in entry_nodes:
             if entry.builder is None and not entry.path.exists():
                 raise DependencyError(
-                    f"Path {entry} required but not present on filesystem"
+                    f"Path {entry} required but not present on filesystem and no builder defined"
                 )
             metadata[entry] = entry.get_metadata()
 
@@ -212,39 +248,12 @@ class Execution(MutableMapping[str, Any]):
                             ) != new_metadata.get(path):
                                 changed.add(dep)
 
-        # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
-        # rebuilt. While such nodes are usually also detected as outdated above, they may
-        # not be in the case of an interrupted build where e.g. one dependent node
-        # got built but not another. But we don't assume a builder is purely functional,
-        # so if a builder runs, we run all descendent builders.
-        to_build: Set[Node] = set(outdated)
-        for node in ordered_nodes:
-            if any(d in to_build for d in edges[node]):
-                to_build.add(node)
-
-        # Nodes which depend on a non-Entry node require that dependent node to be rebuilt.
-        # This is because a non-Entry node's contents are not defined until its builder
-        # builds it. For example, a FileSet is used to contain a set of files not known
-        # statically. So its builder must build it before it can be used by a downstream
-        # dependent builder.
-        # Traverse the graph /upward/ so that nodes depending on other nodes propagate
-        # correctly. (A FileSet whose builder depends on another FileSet requires
-        # both to be built)
-        # Non-entry nodes that don't have builders are assumed to be non-dynamic, that is,
-        # the contents are statically defined at resolution time and are merely a container for
-        # multiple files.
-        for node in reversed(ordered_nodes):
-            if node in to_build:
-                to_build.update(
-                    d
-                    for d in edges[node]
-                    if d not in entry_nodes and d.builder is not None
-                )
-
         return PreparedBuild(
             ordered_nodes=ordered_nodes,
+            buildable_entries={
+                e for e in ordered_nodes if isinstance(e, Entry) and e.builder is not None
+            },
             out_of_date=outdated,
-            to_build=to_build,
             edges=edges,
             entry_dependencies=all_dependencies,
             targets=target_nodes,
@@ -279,14 +288,14 @@ class Execution(MutableMapping[str, Any]):
 
         ordered_nodes = prepared_build.ordered_nodes
         entry_dependencies = prepared_build.entry_dependencies
-        to_build = prepared_build.to_build
+        to_build = prepared_build.get_to_build()
 
         if not to_build:
             logger.info("All files up to date")
             return
 
         executor: Optional[concurrent.futures.Executor]
-        if parallel > 1:
+        if parallel > 1 and not dry_run:
             executor = concurrent.futures.ThreadPoolExecutor(parallel)
         else:
             executor = None
@@ -313,81 +322,83 @@ class Execution(MutableMapping[str, Any]):
             # The strategy here is a bit different. Instead of simply executing nodes
             # in topological order, we execute any nodes which have all their dependencies
             # built. This way we can execute separate paths of the DAG simultaneously.
-            edges = prepared_build.edges
-            to_execute: Set[Node] = set(to_build)
+            edges: Dict[Node, Set[Node]]
+            edges = {node: set(deps) for node, deps in prepared_build.edges.items()}
+            reverse_edges: Dict[Node, Set[Node]] = defaultdict(set)
+            for node, deps in edges.items():
+                for dep in deps:
+                    reverse_edges[dep].add(node)
 
-            # Find the initial set of nodes we can execute right now. If all dependencies
-            # are satisfied, then we can either consider the node already built or ready to
-            # be built, depending on whether the node has a builder and needs building.
-            ready_to_execute: Set[Node] = set()
+            # Remove from the graph all nodes that don't need building
             for node in ordered_nodes:
-                if all(dep in built_nodes for dep in edges[node]):
-                    if node not in to_build:
-                        built_nodes.add(node)
-                    else:
-                        ready_to_execute.add(node)
+                if node not in to_build:
+                    for n in list(edges.get(node) or ()):
+                        reverse_edges[n].remove(node)
+                        edges[node].remove(n)
+
+                    for n in list(reverse_edges.get(node) or ()):
+                        edges[n].remove(node)
+                        reverse_edges[node].remove(n)
+
+            # Nodes that don't have any dependencies are ready to be built
+            ready_to_build: Set[Node] = {node for node in to_build if not edges[node]}
+
+            def node_built(n: Node) -> None:
+                nonlocal to_build
+                # Remove this node from the dependency graph. If any child nodes
+                # are now leaves, add them to the ready_to_build set.
+                children = list(reverse_edges[n])
+                for child in children:
+                    edges[child].remove(n)
+                    reverse_edges[n].remove(child)
+                    if not edges[child]:
+                        ready_to_build.add(child)
 
             futures: Set[concurrent.futures.Future] = set()
-            while True:
-                if ready_to_execute:
-                    node = ready_to_execute.pop()
-                    assert node.builder is not None
-                    builder = node.builder
-                    logger.debug("Submitting builder job: %s", builder)
-                    ready_to_execute.difference_update(builder.builds)
-                    to_execute.difference_update(builder.builds)
-                    # Sanity check if we're about to call a builder but not all its targets
-                    # have their dependencies satisfied yet. In other words, if a node is ready,
-                    # all of its builder's nodes should also be ready and in ready_to_execute.
-                    # If any are still in to_execute, that's a bug.
-                    # This situation shouldn't happen unless there's a bug since all nodes have
-                    # implicit dependencies on their builder. Those dependencies have
-                    # already been merged into the `edges` mapping by _traverse_node_graph().
-                    if any(
-                        dep not in built_nodes
-                        for builds in builder.builds
-                        for dep in edges[builds]
-                    ):
-                        raise RuntimeError(
-                            f"About to execute builder to build node {node} but "
-                            f"other target node(s) "
-                            f"{built_nodes.difference(builder.builds)} have "
-                            f"un-met dependencies. This probably indicates a bug "
-                            f"in the dependency resolution code."
+            try:
+                while True:
+                    if ready_to_build:
+                        node = ready_to_build.pop()
+                        if node.builder is None:
+                            # This only applies to filesets. Entries without builders
+                            # are removed already, so this assert would indicate a bug
+                            assert not isinstance(node, Entry)
+                            node_built(node)
+                            continue
+
+                        builder = node.builder
+                        logger.debug("Submitting builder job: %s", builder)
+                        ready_to_build.difference_update(builder.builds)
+                        futures.add(executor.submit(self._call_builder, builder, dry_run))
+                    elif futures:
+                        done, futures = concurrent.futures.wait(
+                            futures, return_when=concurrent.futures.FIRST_COMPLETED
                         )
-                    futures.add(executor.submit(self._call_builder, builder, dry_run))
-                elif futures:
-                    done, futures = concurrent.futures.wait(
-                        futures, return_when=concurrent.futures.FIRST_COMPLETED
-                    )
-                    f: concurrent.futures.Future
-                    for f in done:
-                        builder = f.result()
-                        built_nodes.update(builder.builds)
-                        if not dry_run:
-                            self._update_builder_metadata(
-                                builder, entry_dependencies, metadata_cache
-                            )
+                        f: concurrent.futures.Future
+                        for f in done:
+                            builder = f.result()
+                            if not dry_run:
+                                self._update_builder_metadata(
+                                    builder, entry_dependencies, metadata_cache
+                                )
 
-                        # Now that the nodes from builder.builds have been built, scan through the
-                        # other nodes waiting to be executed and see if any of them have all their
-                        # dependencies satisfied.
-                        for node in ordered_nodes:
-                            if (
-                                all(dep in built_nodes for dep in edges[node])
-                                and node not in built_nodes
-                            ):
-                                if node.builder is not None:
-                                    ready_to_execute.add(node)
-                                else:
-                                    built_nodes.add(node)
-                else:
-                    # Nothing is executing and nothing is ready to build
-                    break
+                            for node in builder.builds:
+                                node_built(node)
+                    else:
+                        # Nothing is executing and nothing is ready to build
+                        break
+            finally:
+                for f in futures:
+                    f.cancel()
+                logger.debug(
+                    "Canceled %s futures and shutting down executor...", len(futures)
+                )
+                executor.shutdown()
 
-            if to_execute:
+            remaining_nodes = set(node for node, deps in edges.items() if deps)
+            if remaining_nodes:
                 raise RuntimeError(
-                    f"Error resolving dependency graph. Nodes didn't execute: {to_execute}"
+                    f"Error resolving dependency graph. Nodes didn't execute: {remaining_nodes}"
                 )
 
     def _call_builder(
