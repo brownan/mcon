@@ -153,6 +153,13 @@ class Entry(Node, metaclass=EntryMeta):
 
 
 class File(Entry):
+    """A file in a known location on the filesystem
+
+    May or may not exist until built. File objects without a builder imply the file
+    should exist as a prior condition to building anything. e.g. source files which aren't
+    generated.
+    """
+
     def get_metadata(self) -> Any:
         try:
             stat_result = os.stat(self.path)
@@ -225,9 +232,18 @@ class FileSet(Node, Iterable[File]):
     """A set of files whose contents is not necessarily known until build time after
     the fileset has been built.
 
-    A builder which outputs a FileSet is expected to add files to it during the build phase.
-    The downstream builders which depend on this FileSet will then have access to the
-    final set of files within the FileSet.
+    There are two ways a FileSet is typically used:
+
+    1. As a build output. A Builder will create an empty fileset and register it as a target.
+    Other builders will depend on it. During the build phase, the FileSet's builder will
+    create a number of files and add them to the fileset. Afterwards, the dependent builders will
+    have a populated fileset to iterate over. This is the typical way Builders will output
+    files that aren't known until after they are built.
+
+    2. As a collection of input files. A Builder may use Builder.depends_files() to collect a
+    number of known files together and treat them as a unit for dependency purposes. A Builder
+    does not have to use these FileSets as a target, but may use them during its own build phase.
+    This is the typical way a Builder will use FileSets that it takes as a source.
 
     Note: If a builder is, during the build phase, creating File and/or Dir objects in
     arbitrary locations with intent to add them to a target FileSet, the parent

@@ -45,27 +45,26 @@ class PreparedBuild:
     targets: Sequence[Node]
 
     def get_to_build(self) -> AbstractSet[Node]:
-        """From the out of date collection of entries, calculate and return the full list
-        of nodes that need building (whether that node actually defines a builder)
+        """From the collection of out-of-date entries, calculate and return the full set
+        of nodes that need building, (including nodes that don't have a builder)
 
-        This will include the out of date entries, and also any nodes that depend on them,
-        and also any other nodes that must be built in order to create the FileSet objects
-        for other builders.
+        The returned set includes out-of-date entries, and also any nodes which need to
+        be (re)built as a consequence of building the out-of-date entries.
 
         """
         # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
-        # rebuilt. While such nodes are usually also detected as outdated above, they may
+        # rebuilt. While such nodes are usually also detected as outdated, they may
         # not be in the case of an interrupted build where e.g. one dependent node
-        # got built but not another. But we don't assume a builder is purely functional,
-        # so if a builder runs, we run all descendent builders.
-        # Also, a common case is non-Entry nodes, which will never be detected by the above
-        # metadata check, because non-entry nodes don't have saved metadata
+        # got built but not another. Since we don't assume a builder is purely functional,
+        # if a builder runs, all descendent builders are also run.
+        # Also since non-entry nodes are never detected directly as out-of-date, this is
+        # where those nodes are set to build.
         to_build: Set[Node] = set(self.out_of_date)
         for node in self.ordered_nodes:
             if any(d in to_build for d in self.edges[node]):
                 to_build.add(node)
 
-        # Nodes which depend on a non-Entry node require that dependent node to be rebuilt.
+        # Nodes which depend on a non-Entry node require that node to be rebuilt.
         # This is because a non-Entry node's contents are not defined until its builder
         # builds it. For example, a FileSet is used to contain a set of files not known
         # statically. So its builder must build it before it can be used by a downstream
@@ -176,6 +175,10 @@ class Execution(MutableMapping[str, Any]):
             raise TypeError(f"Unknown arg type {args!r}")
 
     def register_alias(self, alias: str, entries: Args) -> None:
+        """Register a new alias that can be used on the command line to refer to one or
+        more filesystem entries
+
+        """
         nodes = list(self._args_to_nodes(entries))
         self.aliases[alias] = nodes
 
@@ -300,11 +303,13 @@ class Execution(MutableMapping[str, Any]):
         else:
             executor = None
 
-        # Start the build process
-        built_nodes: Set[Node] = set()
+        # As nodes are built, metadata on their dependencies is gathered and saved here, so
+        # it can be reused between multiple nodes that depend on the same file.
         metadata_cache: Dict[Entry, Any] = {}
 
+        # Start the build process
         if executor is None:
+            built_nodes: Set[Node] = set()
             for node in ordered_nodes:
                 if (
                     node in to_build

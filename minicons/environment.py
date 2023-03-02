@@ -7,18 +7,22 @@ from minicons.types import DirLike, FileLike, StrPath
 
 
 class Environment(MutableMapping[str, Any]):
-    """An Environment object controls the context in which Builders live
+    """An Environment object holds the context for Builders, Files, and Dir objects.
 
-    An Environment exists to define the root directory and build directory for Builders
-    attached to that environment. File and Dir objects created within the environment
-    will resolve their paths relative to the environment's root.
+    Environment objects serve three purposes:
 
-    Multiple Environments can exist within a single Execution, meaning Builders will use
-    the root and build directories attached to their respective environments.
+    1. To define a root directory to which all relative paths are defined
+    2. To define a build directory common to all builders
+    3. To define a set of variables to use as shared configuration among builders
+
+    Every Environment is associated with an Execution instance. Multiple Environments can
+    exist within a single Execution, meaning Builders will use the root and build directories
+    attached to their respective environments.
 
     The build directory is intended to be the directory where derived, intermediate files
-    are saved by Builder implementations. Builders should use Environment.get_build_path()
-    or Entry.derive() to automatically choose a suitable place for a derived file.
+    are saved by Builder implementations. Builders should use Environment.get_build_path(),
+    Entry.derive() to automatically choose a suitable place for a derived file. Builders
+    may also use Environment.build_root for situations that those methods don't account for.
 
     If an Environment isn't initialized with an explicit Execution instance, the global
     Execution will be used (if one exists, otherwise an error is raised)
@@ -64,6 +68,11 @@ class Environment(MutableMapping[str, Any]):
         self,
         source: FileLike,
     ) -> "File":
+        """Resolve and return a File object
+
+        If a builder needs to resolve a file and also register it as a dependency, use
+        Builder.depends_file() instead.
+        """
         if hasattr(source, "target"):
             source = source.target
         if isinstance(source, File):
@@ -74,6 +83,12 @@ class Environment(MutableMapping[str, Any]):
         self,
         source: DirLike,
     ) -> "Dir":
+        """Resolve and return a Dir object
+
+        If a builder needs to resolve a directory and also register it as a dependency,
+        use Builder.depends_files()
+
+        """
         if hasattr(source, "target"):
             source = source.target
         if isinstance(source, Dir):

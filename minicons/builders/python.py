@@ -256,7 +256,13 @@ def build_core_metadata(pyproject: PyProject) -> Tuple[str, List[Path]]:
 
 
 class Distribution:
-    """Sets up the builders for building a wheel and sdist from a python distribution"""
+    """Sets up the builders for building a wheel and sdist from a python distribution
+
+    This is the main interface for building wheels and source distributions. Create a
+    Distribution object and then use the .wheel() and .sdist() methods to return a wheel
+    and sdist target respectively. All the other supporting builders are set up
+    automatically.
+    """
 
     def __init__(self, env: Environment, dist_dir: Union[str, Path, None] = None):
         self.env = env

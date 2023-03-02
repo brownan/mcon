@@ -15,15 +15,18 @@ N = TypeVar("N", bound=Node)
 class Builder(ABC):
     """Base builder class. Builder classes define how to build one or more files.
 
-    Builders declare the files they build by calling their .register_target() method.
-    Declaring targets is how the framework knows to call this builder when the given
+    During construction, builders have two responsibilities: set up their targets and
+    their dependencies.
+
+    Builders declare their targets (files they build) by calling their .register_target()
+    method. Declaring targets is how the framework knows to call this builder when a
     target needs rebuilding.
 
     Builders must declare the files they depend on by using one of these methods provided
     by the Environment:
-    self.env.depends_file()
-    self.env.depends_files()
-    self.env.depends_dir()
+    self.depends_file()
+    self.depends_files()
+    self.depends_dir()
 
     These three methods return a File, FileSet, and Dir object respectively. Their parameter
     is one of several objects that may be coerced to the respective output type, such as a string,
@@ -31,8 +34,8 @@ class Builder(ABC):
     a .target attribute with the appropriate type. This can be the builder object itself
     if it implements that interface)
 
-    It is critical that Builders use the env.depends_*() methods to declare their dependencies,
-    and use .register_target() to declare their outputs, so that dependency tracking works
+    It is critical that Builders use the depends_*() methods to declare their dependencies,
+    and use register_target() to declare their outputs, so that dependency tracking works
     correctly.
     """
 
@@ -54,15 +57,17 @@ class Builder(ABC):
     def build(self) -> None:
         """Called to actually build the targets
 
-        The builder is expected to write to the filesystem the target file(s) in self.target,
-        as well as any declared side effect files.
+        The builder is expected to write to the filesystem the target file(s) it has
+        previously declared.
         """
         raise NotImplementedError
 
     def register_target(self, node: N) -> N:
         """Registers entries as outputs of the current builder
 
-        Builders should call this to declare additional files they output.
+        Builders should call this for each file it will create during the build phase.
+        If the framework determines a file needs (re)building, it will call this builder
+        to do so.
 
         """
         if node.builder and node.builder is not self:
@@ -86,14 +91,14 @@ class Builder(ABC):
         return node
 
     def depends_file(self, source: FileLike) -> File:
-        """Resolves and registers the given source as a dependency of this builder"""
+        """Resolves and registers the given file as a dependency of this builder"""
         file = self.env.file(source)
         self.depends.append(file)
         return file
 
     def depends_files(self, sources: FileSetLike) -> FileSet:
-        """Resolves and registers the given sources as dependencies of this builder,
-        returning a new FileSet
+        """Resolves and registers the given files and directories as dependencies of this
+        builder, returning a new FileSet
 
 
         """
@@ -103,7 +108,7 @@ class Builder(ABC):
         return fileset
 
     def depends_dir(self, source: DirLike) -> "Dir":
-        """Resolves and registers the given Dir as a dependency of this builder"""
+        """Resolves and registers the given directory as a dependency of this builder"""
         d = self.env.dir(source)
         self.depends.append(d)
         return d
@@ -111,6 +116,13 @@ class Builder(ABC):
 
 # Below are some convenience subclasses for common builder patterns
 class SingleFileBuilder(Builder, ABC):
+    """A builder that outputs a single file
+
+    This sets up and registers a target given by the caller. Usual convention is to have
+    the caller tell a builder where to output its file. Thus, the target is passed in as
+    a parameter and then registered as a target.
+    """
+
     def __init__(self, env: Environment, target: FileLike):
         super().__init__(env)
         self.target: File = self.register_target(env.file(target))
@@ -120,7 +132,17 @@ class SingleFileBuilder(Builder, ABC):
 
 
 class Command(SingleFileBuilder):
-    """Runs the given python function to generate a file"""
+    """Runs the given python function to generate a file
+
+    This is a quick way to create a one-off builder that builds a single file.
+
+    The sources parameter is a convenience for registering the files and directories that
+    must be built before this builder runs.
+
+    The given command is a callable function which is run to build the target file. It is
+    given as a parameter the target File, but not the sources -- it is expected to use another
+    mechanism such as a closure to read from its sources.
+    """
 
     def __init__(
         self,
