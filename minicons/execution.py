@@ -3,6 +3,7 @@ import dataclasses
 import json
 import os
 import sqlite3
+import zlib
 from collections import defaultdict
 from logging import getLogger
 from pathlib import Path
@@ -105,7 +106,7 @@ class Execution(MutableMapping[str, Any]):
         self.metadata_db.execute(
             """
             CREATE TABLE IF NOT EXISTS
-            file_metadata (path text PRIMARY KEY, metadata text)
+            file_metadata (path text PRIMARY KEY, metadata blob)
             """
         )
 
@@ -136,15 +137,24 @@ class Execution(MutableMapping[str, Any]):
         row = cursor.fetchone()
         if not row:
             return None
-        return json.loads(row[0])
+        compressed = row[0]
+        if not isinstance(compressed, bytes):
+            return None
+        try:
+            json_bytes = zlib.decompress(compressed)
+        except zlib.error:
+            return None
+
+        return json.loads(json_bytes.decode("utf-8"))
 
     def _set_metadata(self, path: Path, metadata: Dict[str, Any]) -> None:
         serialized = json.dumps(metadata)
+        compressed = zlib.compress(serialized.encode("utf-8"))
         self.metadata_db.execute(
             """
             INSERT OR REPLACE INTO file_metadata (path, metadata) VALUES (?, ?)
             """,
-            (str(path), serialized),
+            (str(path), compressed),
         )
 
     def _args_to_nodes(self, args: Args) -> Iterator[Node]:
