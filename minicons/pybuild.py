@@ -1,4 +1,4 @@
-"""Routines for integrating this tool as a backend for a a PEP 517 build frontend"""
+"""Routines for integrating this tool as a backend for a PEP 517 build frontend"""
 from pathlib import Path
 from typing import Optional
 

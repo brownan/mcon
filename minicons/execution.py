@@ -38,7 +38,7 @@ class DependencyError(Exception):
 @dataclasses.dataclass
 class PreparedBuild:
     ordered_nodes: Sequence[Node]
-    buildable_entries: Set[Entry]
+    buildable_entries: AbstractSet[Entry]
     edges: Mapping[Node, Collection[Node]]
     out_of_date: Collection[Entry]
     changed: Collection[Node]
@@ -73,6 +73,10 @@ class PreparedBuild:
         # Traverse the graph /upward/ so that nodes depending on other nodes propagate
         # correctly. (A FileSet whose builder depends on another FileSet requires
         # both to be built)
+        # Note that we always tag FileSets which are depended on by a node needing building
+        # as needing building, even if that FileSet doesn't have a builder. This is just so
+        # that traversing this graph in reverse order and checking them against the to_build
+        # set guarantees we hit all FileSets that we need to add to to_build.
         for node in reversed(self.ordered_nodes):
             if node in to_build:
                 to_build.update(d for d in self.edges[node] if not isinstance(d, Entry))
@@ -359,7 +363,7 @@ class Execution(MutableMapping[str, Any]):
             ready_to_build: Set[Node] = {node for node in to_build if not edges[node]}
 
             def node_built(n: Node) -> None:
-                nonlocal to_build
+                nonlocal edges, reverse_edges, ready_to_build
                 # Remove this node from the dependency graph. If any child nodes
                 # are now leaves, add them to the ready_to_build set.
                 children = list(reverse_edges[n])
@@ -375,8 +379,11 @@ class Execution(MutableMapping[str, Any]):
                     if ready_to_build:
                         node = ready_to_build.pop()
                         if node.builder is None:
-                            # This only applies to filesets. Entries without builders
-                            # are removed already, so this assert would indicate a bug
+                            # A node without a builder must be a FileSet here, because if an
+                            # Entry didn't have a builder, it wouldn't be in the to_build set,
+                            # and so would have been removed already.
+                            # FileSets without builders are still added to the to_build set
+                            # in some cases, but building them is a no-op.
                             assert not isinstance(node, Entry)
                             node_built(node)
                             continue
@@ -410,6 +417,8 @@ class Execution(MutableMapping[str, Any]):
                 )
                 executor.shutdown()
 
+            # Sanity check. If any nodes are left in the graph, it's probably a bug in the
+            # above process.
             remaining_nodes = set(node for node, deps in edges.items() if deps)
             if remaining_nodes:
                 raise RuntimeError(
@@ -434,7 +443,7 @@ class Execution(MutableMapping[str, Any]):
 
         # Log the build message even if we're in dry-run mode. (The point is to see what
         # would build)
-        logger.info(str(builder))
+        logger.info("%s", builder)
 
         if not dry_run:
             builder.build()
@@ -518,10 +527,11 @@ def _sort_dag(
     nodes: Collection["Node"], edges_orig: Mapping["Node", Iterable["Node"]]
 ) -> List["Node"]:
     """Given a set of nodes and a mapping describing the edges, returns a topological
-    sort starting at the leaf nodes.
+    sort starting at the leaf nodes. This returns an ordered sequence of nodes such that
+    every node's dependencies are guaranteed to appear at an earlier index.
 
-    Given edges are dependencies, so the topological sort is actually of the graph with
-    all edges reversed. Leaf nodes are nodes with no dependencies.
+    Note the "edges" mapping represents dependencies, so the topological sort performed here
+    is technically that of the DAG with all edges reversed.
 
     """
     # Copy the edges since we'll be mutating it

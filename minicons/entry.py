@@ -7,7 +7,6 @@ from pathlib import Path, PurePath
 from typing import (
     TYPE_CHECKING,
     Any,
-    Collection,
     Dict,
     Iterable,
     Iterator,
@@ -16,15 +15,12 @@ from typing import (
     Optional,
     Set,
     Tuple,
-    TypeVar,
 )
 
 if TYPE_CHECKING:
     from minicons.builder import Builder
     from minicons.environment import Environment
     from minicons.types import E, FileSetLike, StrPath
-
-M = TypeVar("M", bound="EntryMeta")
 
 
 class Node(ABC):  # noqa: B024
@@ -175,7 +171,7 @@ class File(Entry):
         self.path.unlink(missing_ok=True)
 
 
-class Dir(Entry, Collection[File]):
+class Dir(Entry, Iterable[File]):
     """A directory of files
 
     The directory referred to by the Dir object may not exist until it is built.
@@ -199,12 +195,6 @@ class Dir(Entry, Collection[File]):
         for path in self.path.glob(self.glob_pattern):
             if path.is_file():
                 yield self.env.file(path)
-
-    def __contains__(self, item: Any) -> bool:
-        return any(item == d for d in self)
-
-    def __len__(self) -> int:
-        return sum(1 for _ in self)
 
     def get_metadata(self) -> Any:
         try:
@@ -240,10 +230,9 @@ class FileSet(Node, Iterable[File]):
     have a populated fileset to iterate over. This is the typical way Builders will output
     files that aren't known until after they are built.
 
-    2. As a collection of input files. A Builder may use Builder.depends_files() to collect a
-    number of known files together and treat them as a unit for dependency purposes. A Builder
-    does not have to use these FileSets as a target, but may use them during its own build phase.
-    This is the typical way a Builder will use FileSets that it takes as a source.
+    2. As a build input. A Builder may use Builder.depends_files() to collect a
+    number of known or unknown files together and mark them as a dependency. A
+    Builder will then use these FileSets during its own build phase.
 
     Note: If a builder is, during the build phase, creating File and/or Dir objects in
     arbitrary locations with intent to add them to a target FileSet, the parent

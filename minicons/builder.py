@@ -84,6 +84,8 @@ class Builder(ABC):
         # more files to the fileset during the build phase.
         # In either case, we have to set these files' builder so that the execution process
         # doesn't complain about certain files not existing at the start of the build.
+        # TODO: resolve target filesets at build time, in case additional files are added
+        #  to this fileset after passing it to register_target()
         if isinstance(node, FileSet):
             for sub_file in node:
                 self.register_target(sub_file)
