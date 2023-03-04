@@ -1,14 +1,12 @@
-from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Protocol, TypeVar, Union
 
 if TYPE_CHECKING:
     from os import PathLike
 
-    from minicons import Dir, Entry, File, FileSet, Node
+    from mcon import Dir, Entry, File, FileSet, Node
 
 __all__ = [
-    "ArgTypes",
-    "Args",
+    "TargetTypes",
     "FileLike",
     "FileSetLike",
     "DirLike",
@@ -23,8 +21,7 @@ __all__ = [
 StrPath = Union[str, "PathLike[str]"]
 
 # Argument types that can be passed in to register_alias() and build_targets()
-ArgTypes = Union[Path, "Node", "SourceLike", str]
-Args = Union[ArgTypes, Iterable[ArgTypes]]
+TargetTypes = Union[StrPath, "Node", "SourceLike", Iterable["TargetTypes"]]
 
 # These types are the types accepted by various methods and are translated to File,
 # FileSet, or Dir objects respectively.

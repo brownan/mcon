@@ -4,12 +4,12 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import TestCase
 
-from minicons.builder import Builder, SingleFileBuilder
-from minicons.builders.c import CompilerConfig, SharedLibrary
-from minicons.entry import File
-from minicons.environment import Environment
-from minicons.execution import Execution
-from minicons.types import DirLike, FileLike, SourceLike
+from mcon.builder import Builder, SingleFileBuilder
+from mcon.builders.c import CompilerConfig, SharedLibrary
+from mcon.entry import File
+from mcon.environment import Environment
+from mcon.execution import Execution
+from mcon.types import DirLike, FileLike, SourceLike
 
 
 class Common(TestCase):

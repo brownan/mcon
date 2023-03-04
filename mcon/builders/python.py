@@ -17,11 +17,11 @@ import packaging.utils
 import packaging.version
 import toml
 
-from minicons import Builder, Environment, FileSet, SingleFileBuilder
-from minicons.builder import Command
-from minicons.builders.archive import TarBuilder, ZipBuilder
-from minicons.builders.install import Install, InstallFiles
-from minicons.types import DirLike, FileLike, FileSetLike, StrPath
+from mcon import Builder, Environment, FileSet, SingleFileBuilder
+from mcon.builder import Command
+from mcon.builders.archive import TarBuilder, ZipBuilder
+from mcon.builders.install import Install, InstallFiles
+from mcon.types import DirLike, FileLike, FileSetLike, StrPath
 
 
 def urlsafe_b64encode(data: bytes) -> bytes:
@@ -507,7 +507,7 @@ class WheelMetadataBuilder(Builder):
         # Build wheel metadata
         msg = Message()
         msg["Wheel-Version"] = "1.0"
-        msg["Generator"] = "minicons"
+        msg["Generator"] = "mcon"
         msg["Root-Is-Purelib"] = str(root_is_purelib).lower()
         for t in packaging.tags.parse_tag(tag):
             msg["Tag"] = str(t)

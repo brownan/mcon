@@ -24,11 +24,11 @@ from typing import (
     Union,
 )
 
-from minicons.builder import Builder
-from minicons.entry import Entry, Node
-from minicons.types import Args
+from mcon.builder import Builder
+from mcon.entry import Entry, Node
+from mcon.types import TargetTypes
 
-logger = getLogger("minicons")
+logger = getLogger("mcon")
 
 
 class DependencyError(Exception):
@@ -90,7 +90,7 @@ class Execution(MutableMapping[str, Any]):
     An execution object keeps track of all the builders, entries, and aliases. Environments
     attached to an Execution will add their builders and entries to their Execution instance.
 
-    Typically, a process will have a single global Execution instance, but for embedding minicons
+    Typically, a process will have a single global Execution instance, but for embedding mcon
     in a larger application it may be useful to manage separate Executions.
     """
 
@@ -104,7 +104,7 @@ class Execution(MutableMapping[str, Any]):
         self.entries: Dict[Path, "Entry"] = {}
 
         self.metadata_db = sqlite3.connect(
-            self.root.joinpath(".minicons.sqlite3"), isolation_level=None
+            self.root.joinpath(".mcon.sqlite3"), isolation_level=None
         )
         self.metadata_db.execute("""PRAGMA journal_mode=wal""")
         self.metadata_db.execute(
@@ -161,7 +161,7 @@ class Execution(MutableMapping[str, Any]):
             (str(path), compressed),
         )
 
-    def _args_to_nodes(self, args: Args) -> Iterator[Node]:
+    def _args_to_nodes(self, args: TargetTypes) -> Iterator[Node]:
         """Resolves a string, path, Node, or SourceLike to Node objects
 
         Items may also be an Iterable, possibly nested.
@@ -188,7 +188,7 @@ class Execution(MutableMapping[str, Any]):
         else:
             raise TypeError(f"Unknown arg type {args!r}")
 
-    def register_alias(self, alias: str, entries: Args) -> None:
+    def register_alias(self, alias: str, entries: TargetTypes) -> None:
         """Register a new alias that can be used on the command line to refer to one or
         more filesystem entries
 
@@ -196,7 +196,7 @@ class Execution(MutableMapping[str, Any]):
         nodes = list(self._args_to_nodes(entries))
         self.aliases[alias] = nodes
 
-    def prepare_build(self, targets: Args) -> PreparedBuild:
+    def prepare_build(self, targets: TargetTypes) -> PreparedBuild:
         """Prepare to build the given targets
 
         This builds the final dependency graph and the set of out of date nodes
@@ -279,7 +279,7 @@ class Execution(MutableMapping[str, Any]):
 
     def build_targets(
         self,
-        targets: Optional[Args] = None,
+        targets: Optional[TargetTypes] = None,
         prepared_build: Optional[PreparedBuild] = None,
         dry_run: bool = False,
         parallel: Union[bool, int] = False,
@@ -579,7 +579,7 @@ def get_current_execution() -> Execution:
     return execution
 
 
-def register_alias(alias: str, entries: Args) -> None:
+def register_alias(alias: str, entries: TargetTypes) -> None:
     """Registers an alias with the current execution"""
     return get_current_execution().register_alias(alias, entries)
 

@@ -3,8 +3,8 @@ import shlex
 import subprocess
 from typing import Collection, Sequence
 
-from minicons import Environment, File, FileLike, FileSetLike
-from minicons.builder import SingleFileBuilder
+from mcon import Environment, File, FileLike, FileSetLike
+from mcon.builder import SingleFileBuilder
 
 
 @dataclasses.dataclass

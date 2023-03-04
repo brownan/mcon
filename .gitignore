@@ -1,5 +1,5 @@
-# minicons-specific
-.minicons.sqlite3
+# mcon-specific
+.mcon.sqlite3
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

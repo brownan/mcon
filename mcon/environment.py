@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Any, Dict, Iterator, MutableMapping, Optional
 
-from minicons.entry import Dir, File
-from minicons.execution import Execution, get_current_execution
-from minicons.types import DirLike, FileLike, StrPath
+from mcon.entry import Dir, File
+from mcon.execution import Execution, get_current_execution
+from mcon.types import DirLike, FileLike, StrPath
 
 
 class Environment(MutableMapping[str, Any]):

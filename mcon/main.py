@@ -3,11 +3,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-import minicons.execution
-from minicons import Dir, Entry, File, FileSet, Node
-from minicons.execution import PreparedBuild
+from mcon import Dir, Entry, File, FileSet, Node
+from mcon.execution import Execution, PreparedBuild, set_current_execution
 
-logger = logging.getLogger("minicons")
+logger = logging.getLogger("mcon")
 
 
 class TreeAction(argparse.Action):
@@ -69,7 +68,7 @@ def main() -> None:
     root.addHandler(handler)
 
     construct_path = Path(args["construct"]).resolve()
-    execution = minicons.execution.Execution(construct_path.parent)
+    execution = Execution(construct_path.parent)
     execute_construct(
         construct_path,
         execution,
@@ -82,7 +81,7 @@ def main() -> None:
 
 def execute_construct(
     construct_path: Path,
-    execution: minicons.execution.Execution,
+    execution: Execution,
     targets: List[str],
     always_build: bool = False,
     tree: Union[bool, str] = False,
@@ -91,11 +90,11 @@ def execute_construct(
     contents = open(construct_path, "r").read()
     code = compile(contents, construct_path.name, "exec", optimize=0)
 
-    minicons.execution.set_current_execution(execution)
+    set_current_execution(execution)
     try:
         exec(code, {})
     finally:
-        minicons.execution.set_current_execution(None)
+        set_current_execution(None)
 
     prepared = execution.prepare_build(targets)
 

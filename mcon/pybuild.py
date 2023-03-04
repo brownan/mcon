@@ -2,9 +2,9 @@
 from pathlib import Path
 from typing import Optional
 
-from minicons import File
-from minicons.execution import Execution
-from minicons.main import execute_construct
+from mcon import File
+from mcon.execution import Execution
+from mcon.main import execute_construct
 
 
 def _get_construct_path() -> Path:

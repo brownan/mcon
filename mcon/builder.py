@@ -3,11 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypeVar
 
-from minicons.entry import Dir, File, FileSet, Node
-from minicons.types import DirLike, FileLike, FileSetLike
+from mcon.entry import Dir, File, FileSet, Node
+from mcon.types import DirLike, FileLike, FileSetLike
 
 if TYPE_CHECKING:
-    from minicons.environment import Environment
+    from mcon.environment import Environment
 
 N = TypeVar("N", bound=Node)
 

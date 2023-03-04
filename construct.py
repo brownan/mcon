@@ -1,5 +1,5 @@
-from minicons import Environment, register_alias
-from minicons.builders.python import Distribution
+from mcon import Environment, register_alias
+from mcon.builders.python import Distribution
 
 env = Environment()
 dist = Distribution(env)
@@ -7,8 +7,8 @@ dist = Distribution(env)
 wheel = dist.wheel("py38-none-any")
 wheel.add_sources(
     [
-        env.root.glob("minicons/**/*.py"),
-        "minicons/py.typed",
+        env.root.glob("mcon/**/*.py"),
+        "mcon/py.typed",
     ]
 )
 register_alias("wheel", wheel)
@@ -18,9 +18,9 @@ sdist.add_sources(
     [
         "construct.py",
         "pyproject.toml",
-        env.root.glob("minicons/**/*.py"),
+        env.root.glob("mcon/**/*.py"),
         env.root.glob("tests/**/*.py"),
-        "minicons/py.typed",
+        "mcon/py.typed",
         ".pre-commit-config.yaml",
         ".gitignore",
     ]

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import ContextManager, Generic, TypeVar, Union
 
-from minicons import Environment, FileLike, FileSetLike, SingleFileBuilder
+from mcon import Environment, FileLike, FileSetLike, SingleFileBuilder
 
 A = TypeVar("A", bound=ContextManager)
 

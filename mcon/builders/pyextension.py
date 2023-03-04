@@ -7,9 +7,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
-from minicons import Environment, File, FileLike
-from minicons.builder import Command
-from minicons.builders.c import CompiledObject, CompilerConfig, SharedLibrary
+from mcon import Environment, File, FileLike
+from mcon.builder import Command
+from mcon.builders.c import CompiledObject, CompilerConfig, SharedLibrary
 
 
 @lru_cache

@@ -1,7 +1,7 @@
 import shutil
 
-from minicons import DirLike, Environment, FileLike, FileSet, FileSetLike
-from minicons.builder import Builder, SingleFileBuilder
+from mcon import DirLike, Environment, FileLike, FileSet, FileSetLike
+from mcon.builder import Builder, SingleFileBuilder
 
 
 class Install(SingleFileBuilder):

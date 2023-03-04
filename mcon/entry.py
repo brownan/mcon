@@ -18,9 +18,9 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from minicons.builder import Builder
-    from minicons.environment import Environment
-    from minicons.types import E, FileSetLike, StrPath
+    from mcon.builder import Builder
+    from mcon.environment import Environment
+    from mcon.types import E, FileSetLike, StrPath
 
 
 class Node(ABC):  # noqa: B024
@@ -184,7 +184,7 @@ class Dir(Entry, Iterable[File]):
     which may want to add files to the directory. Dir targets let builders treat a
     directory as a single unit instead of a collection of files. It is commonly useful
     when calling into another build process which outputs its own directory of files and
-    a minicons builder doesn't know or want to know the exact set of files.
+    an mcon builder doesn't know or want to know the exact set of files.
     """
 
     def __init__(self, env: "Environment", path: StrPath, glob: str = "**/*"):
