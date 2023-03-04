@@ -1,6 +1,6 @@
 """Routines for integrating this tool as a backend for a PEP 517 build frontend"""
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from mcon import File
 from mcon.execution import Execution
@@ -14,11 +14,11 @@ def _get_construct_path() -> Path:
     return p
 
 
-def _exec_target(target: str, build_dir: str) -> str:
+def _exec_target(target: str, **kwargs: Any) -> str:
     construct_path = _get_construct_path()
     root = construct_path.parent
     execution = Execution(root)
-    execution["WHEEL_BUILD_DIR"] = build_dir
+    execution.update(kwargs)
     execute_construct(
         construct_path,
         execution,
@@ -37,7 +37,7 @@ def build_wheel(
     config_settings: Optional[dict] = None,
     metadata_directory: Optional[str] = None,
 ) -> str:
-    return _exec_target("wheel", wheel_directory)
+    return _exec_target("wheel", WHEEL_DIST_DIR=wheel_directory)
 
 
 def build_sdist(
@@ -45,7 +45,7 @@ def build_sdist(
     config_settings: Optional[dict] = None,
     metadata_directory: Optional[str] = None,
 ) -> str:
-    return _exec_target("sdist", sdist_directory)
+    return _exec_target("sdist", SDIST_DIST_DIR=sdist_directory)
 
 
 def build_editable(
@@ -53,4 +53,4 @@ def build_editable(
     config_settings: Optional[dict] = None,
     metadata_directory: Optional[str] = None,
 ) -> str:
-    return _exec_target("editable", wheel_directory)
+    return _exec_target("editable", EDITABLE_DIST_DIR=wheel_directory)

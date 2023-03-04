@@ -264,14 +264,13 @@ class Distribution:
     automatically.
     """
 
-    def __init__(self, env: Environment, dist_dir: Union[str, Path, None] = None):
+    def __init__(self, env: Environment):
         self.env = env
-        if dist_dir is None:
-            if "WHEEL_BUILD_DIR" in self.env:
-                dist_dir = self.env["WHEEL_BUILD_DIR"]
-            else:
-                dist_dir = "dist"
-        self.dist_dir = self.env.root.joinpath(dist_dir).resolve()
+        self.wheel_dist_dir = env.root / self.env.get("WHEEL_DIST_DIR", "dist")
+        self.sdist_dist_dir = env.root / self.env.get("SDIST_DIST_DIR", "dist")
+        self.editable_dist_dir = env.root / self.env.get(
+            "EDITABLE_DIST_DIR", env.build_root / "wheel-editable"
+        )
 
         # Parse pyproject.toml file in the current directory
         self.pyproject = parse_pyproject_toml(self.env.root.joinpath("pyproject.toml"))
@@ -289,7 +288,7 @@ class Distribution:
         """Returns a wheel builder"""
         return Wheel(
             self.env,
-            self.dist_dir,
+            self.wheel_dist_dir,
             self.pyproject,
             tag,
             self.core_metadata,
@@ -298,7 +297,7 @@ class Distribution:
 
     def sdist(self) -> SDist:
         """Returns an sdist builder"""
-        return SDist(self.env, self.dist_dir, self.pyproject, self.core_metadata)
+        return SDist(self.env, self.sdist_dist_dir, self.pyproject, self.core_metadata)
 
     def editable(self, tag: str, paths: Union[str, Sequence[str]]) -> FileLike:
         """Returns an editable wheel builder"""
@@ -309,7 +308,7 @@ class Distribution:
         # up a wheel just like normal but only add the one file to it.
         wheel = Wheel(
             self.env,
-            self.env.build_root / "editable",
+            self.editable_dist_dir,
             self.pyproject,
             tag,
             self.core_metadata,
