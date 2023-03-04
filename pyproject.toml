@@ -10,6 +10,7 @@ backend-path = ["."]
 name = "mcon"
 version = "0.0.1"
 description = "Mini software construction and build framework"
+readme = "README.md"
 authors = [
     {name = "Andrew Brown", email = "andrew@brownan.org"},
 ]
