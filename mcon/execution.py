@@ -79,7 +79,9 @@ class PreparedBuild:
         # set guarantees we hit all FileSets that we need to add to to_build.
         for node in reversed(self.ordered_nodes):
             if node in to_build:
-                to_build.update(d for d in self.edges[node] if not isinstance(d, Entry))
+                for d in self.edges[node]:
+                    if not isinstance(d, Entry):
+                        to_build.add(d)
 
         return to_build
 

@@ -21,6 +21,20 @@ class InstallFiles(Builder):
 
     All files must be within the given root.
 
+    Note: This builder may need to re-copy its files even if the source files haven't
+    changed. This is because the builder cannot generally know what set of files it
+    needs to copy -- a source FileSet may itself have changed, and so InstallFiles
+    has no way to know this until build time.
+
+    Therefore, if a dependent builder uses an InstallFiles builder as a source, and that
+    dependent builder needs to be built for some other reason, this InstallFiles builder
+    must necessarily run.
+
+    (additional optimizations could be made by introspecting the sources to see
+    if there are any other FileSets within, and in that case generating the target
+    fileset statically. But I wanted to avoid adding all sorts of exceptions and fast
+    code paths to the software at this stage, focusing instead on correctness)
+
     """
 
     def __init__(
