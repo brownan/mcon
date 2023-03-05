@@ -321,8 +321,11 @@ class Execution(MutableMapping[str, Any]):
         # it can be reused between multiple nodes that depend on the same file.
         metadata_cache: Dict[Entry, Any] = {}
 
-        # Mutable object holding number of built nodes and total number of buildable nodes
-        build_stats: List[int] = [0, sum(1 for n in to_build if n.builder is not None)]
+        # Mutable object holding number of builder calls and total number of builders to run
+        build_stats: List[int] = [
+            0,
+            len(set(n.builder for n in to_build if n.builder is not None)),
+        ]
 
         # Start the build process
         if executor is None:

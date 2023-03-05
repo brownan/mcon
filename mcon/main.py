@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
@@ -51,6 +52,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--construct", default="construct.py")
     parser.add_argument("-B", "--always-build", action="store_true")
+    parser.add_argument("-j", "--parallel", type=int, default=os.cpu_count())
     parser.add_argument("-d", "--dry-run", action="store_true")
     parser.add_argument("--tree", "--tree=all", action=TreeAction, nargs=0)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -76,6 +78,7 @@ def main() -> None:
         args["always_build"],
         args["tree"],
         args["dry_run"],
+        args["parallel"],
     )
 
 
@@ -86,6 +89,7 @@ def execute_construct(
     always_build: bool = False,
     tree: Union[bool, str] = False,
     dry_run: bool = False,
+    parallel: Union[bool, int] = True,
 ) -> None:
     contents = open(construct_path, "r").read()
     code = compile(contents, construct_path.name, "exec", optimize=0)
@@ -104,7 +108,7 @@ def execute_construct(
     if tree:
         print_tree(prepared, all_nodes=tree == "all")
 
-    execution.build_targets(prepared_build=prepared, dry_run=dry_run, parallel=True)
+    execution.build_targets(prepared_build=prepared, dry_run=dry_run, parallel=parallel)
 
 
 def print_tree(
