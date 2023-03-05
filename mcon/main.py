@@ -115,15 +115,28 @@ def print_tree(
     changed = build.changed
 
     new_edges: Dict[Node, List[Node]] = {e: list(d) for e, d in edges.items()}
-    if not all_nodes:
-        # traverse the graph forming a new graph that eliminates non-entry nodes
-        for node in ordered_nodes:
-            for child in list(new_edges[node]):
-                if not isinstance(child, Entry):
-                    # Remove this edge
-                    new_edges[node].remove(child)
-                    # Add new edges to children
-                    new_edges[node].extend(new_edges[child])
+
+    # Traverse the nodes and modify the tree for more useful output
+    for node in ordered_nodes:
+        for child in list(new_edges[node]):
+            # Eliminate non-entry nodes. i.e. only show File and Directory nodes in the
+            # tree output. Leaving in other nodes may be handy for debugging the dependency
+            # calculation logic.
+            if not isinstance(child, Entry):
+                # Remove this edge
+                new_edges[node].remove(child)
+                # Add new edges to children
+                new_edges[node].extend(new_edges[child])
+
+            # Cut off all parts of the tree that aren't being built, unless the full tree
+            # is requested
+            elif (
+                not all_nodes
+                and child not in to_build
+                and child not in changed
+                and child not in out_of_date
+            ):
+                new_edges[node].remove(child)
 
     seen: Set[Node] = set()
     to_visit: List[Tuple[Node, List[bool], bool]] = list((t, [], False) for t in targets)
