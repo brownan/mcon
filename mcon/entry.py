@@ -98,7 +98,12 @@ class Entry(Node, metaclass=EntryMeta):
 
     def relative_to(self, root: StrPath = "") -> str:
         """Returns the current file's path relative to the given root either within
-        a build directory or the environment's root
+        a build directory or the environment's root.
+
+        This is different than calling file.path.relative_to() in that if the current
+        file is within a build directory (env.build_root / "some_dir_name"), the
+        given root parameter is taken to be relative to that build root, not to
+        the environment root.
 
         For example, if a File has path foo/bar/baz.txt
 
@@ -108,8 +113,7 @@ class Entry(Node, metaclass=EntryMeta):
         >>> f.relative_to("foo")
             "bar/baz.txt"
 
-        The method works the same if the file is under a build directory, in that
-        the root is interpreted relative to the file's build dir.
+        But if the file is within a build directory, the result is the same:
 
         >>> f = File(..., "build/bdir/foo/bar/baz.txt")
         >>> f.relative_to("")
