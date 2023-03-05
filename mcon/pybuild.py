@@ -22,8 +22,8 @@ def _exec_target(target: str, **kwargs: Any) -> str:
     execute_construct(
         construct_path,
         execution,
-        [target],
     )
+    execution.build_targets(targets=target)
     targets = execution.aliases[target]
     if len(targets) != 1:
         raise RuntimeError("Target 'wheel' had more than one target")

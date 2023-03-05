@@ -74,22 +74,24 @@ def main() -> None:
     execute_construct(
         construct_path,
         execution,
-        args["target"],
-        args["always_build"],
-        args["tree"],
-        args["dry_run"],
-        args["parallel"],
+    )
+
+    prepared = execution.prepare_build(args["target"])
+
+    if args["always_build"]:
+        prepared.out_of_date = prepared.buildable_entries
+
+    if args["tree"]:
+        print_tree(prepared, all_nodes=args["tree"] == "all")
+
+    execution.build_targets(
+        prepared_build=prepared, dry_run=args["dry_run"], parallel=args["parallel"]
     )
 
 
 def execute_construct(
     construct_path: Path,
     execution: Execution,
-    targets: List[str],
-    always_build: bool = False,
-    tree: Union[bool, str] = False,
-    dry_run: bool = False,
-    parallel: Union[bool, int] = True,
 ) -> None:
     contents = open(construct_path, "r").read()
     code = compile(contents, construct_path.name, "exec", optimize=0)
@@ -99,16 +101,6 @@ def execute_construct(
         exec(code, {})
     finally:
         set_current_execution(None)
-
-    prepared = execution.prepare_build(targets)
-
-    if always_build:
-        prepared.out_of_date = prepared.buildable_entries
-
-    if tree:
-        print_tree(prepared, all_nodes=tree == "all")
-
-    execution.build_targets(prepared_build=prepared, dry_run=dry_run, parallel=parallel)
 
 
 def print_tree(

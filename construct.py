@@ -23,6 +23,7 @@ sdist.add_sources(
         "mcon/py.typed",
         ".pre-commit-config.yaml",
         ".gitignore",
+        "README.md",
     ]
 )
 register_alias("sdist", sdist)
