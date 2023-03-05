@@ -389,9 +389,16 @@ class Wheel:
         self,
         sources: FileSetLike,
         *,
-        relative_to: str = "",
+        relative_to: StrPath = "",
+        prefix: StrPath = "",
     ) -> None:
-        fileset = InstallFiles(self.env, self.wheel_build_dir, sources, relative_to)
+        fileset = InstallFiles(
+            self.env,
+            self.wheel_build_dir,
+            sources,
+            relative_to=relative_to,
+            prefix=prefix,
+        )
         self.wheel_fileset.add(fileset)
         self.manifest_fileset.add(fileset)
 
@@ -403,7 +410,7 @@ class Wheel:
         relative_to: str = "",
     ) -> None:
         fileset = InstallFiles(
-            self.env, self.wheel_data_dir / category, sources, relative_to
+            self.env, self.wheel_data_dir / category, sources, relative_to=relative_to
         )
         self.wheel_fileset.add(fileset)
 
@@ -447,7 +454,7 @@ class SDist:
         relative_to: str = "",
     ) -> None:
         destdir = self.sdist_build_root
-        fileset = InstallFiles(self.env, destdir, sources, relative_to)
+        fileset = InstallFiles(self.env, destdir, sources, relative_to=relative_to)
         self.sdist_fileset.add(fileset)
 
 

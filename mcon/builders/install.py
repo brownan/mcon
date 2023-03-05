@@ -1,6 +1,6 @@
 import shutil
 
-from mcon import DirLike, Environment, FileLike, FileSet, FileSetLike
+from mcon import DirLike, Environment, FileLike, FileSet, FileSetLike, StrPath
 from mcon.builder import Builder, SingleFileBuilder
 
 
@@ -28,21 +28,24 @@ class InstallFiles(Builder):
         env: Environment,
         destdir: DirLike,
         sources: FileSetLike,
-        root: str = ".",
+        *,
+        relative_to: StrPath = ".",
+        prefix: StrPath = "",
     ) -> None:
         super().__init__(env)
         self.destdir = env.dir(destdir)
         self.target: FileSet = self.register_target(FileSet(env))
         self.sources: FileSet = self.depends_files(sources)
-        self.root = self.env.root.joinpath(root)
+        self.relative_to = self.env.root.joinpath(relative_to)
+        self.prefix = prefix
 
     def __str__(self) -> str:
-        return "InstallFiles({})".format(self.destdir.path)
+        return "InstallFiles({})".format(self.destdir.path / self.prefix)
 
     def build(self) -> None:
         for file in self.sources:
-            rel_path = file.relative_to(self.root)
-            final_path = self.destdir.path / rel_path
+            rel_path = file.relative_to(self.relative_to)
+            final_path = self.destdir.path / self.prefix / rel_path
             final_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file.path, final_path)
             self.target.add(self.env.file(final_path))

@@ -13,8 +13,6 @@ __all__ = [
     "E",
     "SourceType",
     "SourceLike",
-    "FileLike",
-    "DirLike",
     "StrPath",
 ]
 
