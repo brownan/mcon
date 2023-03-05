@@ -321,6 +321,9 @@ class Execution(MutableMapping[str, Any]):
         # it can be reused between multiple nodes that depend on the same file.
         metadata_cache: Dict[Entry, Any] = {}
 
+        # Mutable object holding number of built nodes and total number of buildable nodes
+        build_stats: List[int] = [0, sum(1 for n in to_build if n.builder is not None)]
+
         # Start the build process
         if executor is None:
             built_nodes: Set[Node] = set()
@@ -331,7 +334,7 @@ class Execution(MutableMapping[str, Any]):
                     and node.builder is not None
                 ):
                     builder = node.builder
-                    self._call_builder(builder, dry_run)
+                    self._call_builder(builder, build_stats, dry_run)
                     built_nodes.update(builder.builds)
                     if not dry_run:
                         self._update_builder_metadata(
@@ -391,7 +394,11 @@ class Execution(MutableMapping[str, Any]):
                         builder = node.builder
                         logger.debug("Submitting builder job: %s", builder)
                         ready_to_build.difference_update(builder.builds)
-                        futures.add(executor.submit(self._call_builder, builder, dry_run))
+                        futures.add(
+                            executor.submit(
+                                self._call_builder, builder, build_stats, dry_run
+                            )
+                        )
                     elif futures:
                         done, futures = concurrent.futures.wait(
                             futures, return_when=concurrent.futures.FIRST_COMPLETED
@@ -428,6 +435,7 @@ class Execution(MutableMapping[str, Any]):
     def _call_builder(
         self,
         builder: Builder,
+        build_stats: List[int],
         dry_run: bool,
     ) -> Builder:
         """Calls the given builder to build its entries"""
@@ -443,7 +451,14 @@ class Execution(MutableMapping[str, Any]):
 
         # Log the build message even if we're in dry-run mode. (The point is to see what
         # would build)
-        logger.info("%s", builder)
+        build_stats[0] += 1
+        logger.info(
+            "[%*s/%s] %s",
+            len(str(build_stats[1])),
+            build_stats[0],
+            build_stats[1],
+            builder,
+        )
 
         if not dry_run:
             builder.build()
