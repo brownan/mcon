@@ -71,13 +71,10 @@ class Entry(Node, metaclass=EntryMeta):
     the path is expected to exist.
     """
 
-    def __init__(
-        self,
-        env: "Environment",
-        path: StrPath,
-    ):
+    def __init__(self, env: "Environment", path: StrPath, *, leave: bool = False):
         super().__init__(env)
         self.path: Path = env.root.joinpath(path)
+        self.leave = leave
 
     def __hash__(self) -> int:
         return hash(self.path)
@@ -172,7 +169,8 @@ class File(Entry):
         }
 
     def remove(self) -> None:
-        self.path.unlink(missing_ok=True)
+        if not self.leave:
+            self.path.unlink(missing_ok=True)
 
 
 class Dir(Entry, Iterable[File]):
@@ -191,8 +189,15 @@ class Dir(Entry, Iterable[File]):
     an mcon builder doesn't know or want to know the exact set of files.
     """
 
-    def __init__(self, env: "Environment", path: StrPath, glob: str = "**/*"):
-        super().__init__(env, path)
+    def __init__(
+        self,
+        env: "Environment",
+        path: StrPath,
+        *,
+        glob: str = "**/*",
+        leave: bool = False,
+    ):
+        super().__init__(env, path, leave=leave)
         self.glob_pattern = glob
 
     def __iter__(self) -> Iterator["File"]:
@@ -218,7 +223,7 @@ class Dir(Entry, Iterable[File]):
         return metadata
 
     def remove(self) -> None:
-        if self.path.is_dir():
+        if not self.leave and self.path.is_dir():
             shutil.rmtree(self.path)
 
 

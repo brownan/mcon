@@ -69,6 +69,7 @@ class Environment(MutableMapping[str, Any]):
         source: Union[Entry, StrPath, SourceLike],
         entry_type: Type[E],
         entry_name: str,
+        leave: bool = False,
     ) -> E:
         if hasattr(source, "target"):
             if not isinstance(source.target, entry_type):
@@ -81,22 +82,24 @@ class Environment(MutableMapping[str, Any]):
             return source
         if not isinstance(source, (str, Path)):
             raise TypeError(f"Unknown {entry_name} type {type(source)}")
-        return entry_type(self, source)
+        return entry_type(self, source, leave=leave)
 
     def file(
         self,
         source: FileLike,
+        leave: bool = False,
     ) -> "File":
         """Resolve and return a File object
 
         If a builder needs to resolve a file and also register it as a dependency, use
         Builder.depends_file() instead.
         """
-        return self._make_entry_common(source, File, "file")
+        return self._make_entry_common(source, File, "file", leave=leave)
 
     def dir(
         self,
         source: DirLike,
+        leave: bool = False,
     ) -> "Dir":
         """Resolve and return a Dir object
 
@@ -104,7 +107,7 @@ class Environment(MutableMapping[str, Any]):
         use Builder.depends_files()
 
         """
-        return self._make_entry_common(source, Dir, "dir")
+        return self._make_entry_common(source, Dir, "dir", leave=leave)
 
     def get_rel_path(self, src: StrPath) -> str:
         """Returns the path to the given source file relative to either the environment's
