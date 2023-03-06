@@ -74,22 +74,6 @@ class Builder(ABC):
             raise ValueError(f"{node} is already being built by {node.builder}")
         node.builder = self
         self.builds.append(node)
-
-        # If this is a fileset with a pre-populated set of files (not files dynamically
-        # generated) then also register them with this builder.
-        # This makes it easy for the builder pattern where they generate a lot of
-        # known files, add them to a fileset, then register them as a single unit.
-        # Maybe this is a shortcut instead of a builder registering files individually
-        # and setting its .target attribute to a list, or maybe the builder plans to add
-        # more files to the fileset during the build phase.
-        # In either case, we have to set these files' builder so that the execution process
-        # doesn't complain about certain files not existing at the start of the build.
-        # TODO: resolve target filesets at build time, in case additional files are added
-        #  to this fileset after passing it to register_target()
-        if isinstance(node, FileSet):
-            for sub_file in node:
-                self.register_target(sub_file)
-
         return node
 
     def depends_file(self, source: FileLike) -> File:
