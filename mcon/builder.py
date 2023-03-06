@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, List, Optional, TypeVar
 
 from mcon.entry import Dir, File, FileSet, Node
-from mcon.types import DirLike, FileLike, FileSetLike
+from mcon.types import DirLike, FileLike, FileSetLike, SourceType
 
 if TYPE_CHECKING:
     from mcon.environment import Environment
@@ -117,28 +117,32 @@ class SingleFileBuilder(Builder, ABC):
         return f"Building {self.target}"
 
 
-class Command(SingleFileBuilder):
-    """Runs the given python function to generate a file
+class Command(Builder, Generic[SourceType]):
+    """Runs the given python function to generate a file, dir, or fileset
 
-    This is a quick way to create a one-off builder that builds a single file.
+    This is a quick way to create a one-off builder that builds something
+
+    The given target can be a File, Dir, or FileSet.
+
+    The given command is a callable function which is run to build the target. It is
+    passed as a parameter the target File, but not the sources -- it is expected to use another
+    mechanism such as a closure to read from its sources.
 
     The sources parameter is a convenience for registering the files and directories that
     must be built before this builder runs.
 
-    The given command is a callable function which is run to build the target file. It is
-    given as a parameter the target File, but not the sources -- it is expected to use another
-    mechanism such as a closure to read from its sources.
     """
 
     def __init__(
         self,
         env: Environment,
-        target: FileLike,
+        target: SourceType,
         sources: Optional[FileSetLike],
-        command: Callable[[File], Any],
-        str_func: Optional[Callable[[File], str]] = None,
+        command: Callable[[SourceType], Any],
+        str_func: Optional[Callable[[SourceType], str]] = None,
     ):
-        super().__init__(env, target)
+        super().__init__(env)
+        self.target: SourceType = self.register_target(target)
         self.command = command
         self.str_func = str_func
         if sources is not None:
