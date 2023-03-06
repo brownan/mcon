@@ -520,6 +520,8 @@ def _traverse_node_graph(
     to_visit = list(targets)
     while to_visit:
         visiting: Node = to_visit.pop()
+        if visiting in seen:
+            continue
         reachable_entries.append(visiting)
         seen.add(visiting)
 
@@ -537,6 +539,11 @@ def _traverse_node_graph(
             # which themselves have dependencies.
             for sibling in visiting.builder.builds:
                 dependencies.update(sibling.depends)
+
+                # If this node is to be built, all its sibling nodes are also built, so we need to
+                # make sure they're part of the reachable nodes in the graph.
+                if sibling not in seen:
+                    to_visit.append(sibling)
 
         for dep in dependencies:
             edges[visiting].append(dep)
