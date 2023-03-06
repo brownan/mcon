@@ -462,9 +462,9 @@ class CoreMetadataBuilder(SingleFileBuilder):
     def __init__(self, env: Environment, target: FileLike, pyproject: PyProject):
         super().__init__(env, target)
         self.pyproject = pyproject
-        self.core_metadata, additital_deps = build_core_metadata(pyproject)
+        self.core_metadata, additional_deps = build_core_metadata(pyproject)
         self.depends_file(pyproject.file)
-        self.depends_files(additital_deps)
+        self.depends_files(additional_deps)
 
     def build(self) -> None:
         self.target.path.write_text(self.core_metadata)

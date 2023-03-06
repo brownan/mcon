@@ -239,7 +239,9 @@ class Execution(MutableMapping[str, Any]):
         for entry in entry_nodes:
             if entry.builder is None and not entry.path.exists():
                 raise DependencyError(
-                    f"Path {entry} required but not present on filesystem and no builder defined"
+                    f"Path {entry} required but not present on filesystem and no builder "
+                    f"defined. File is either missing or was not properly registered with a "
+                    f"builder."
                 )
             metadata[entry] = entry.get_metadata()
 
@@ -578,6 +580,18 @@ def _sort_dag(
                 leaf_nodes.append(m)
 
     if any(deps for deps in edges.values()):
+        # Remove non-entry nodes to make the dependency cycle output more readable
+        for node in nodes:
+            if not isinstance(node, Entry):
+                for parent in list(reverse_edges[node]):
+                    edges[parent].remove(node)
+                    edges[parent].update(edges[node])
+                for child in list(edges[node]):
+                    reverse_edges[child].remove(node)
+                    reverse_edges[child].update(reverse_edges[node])
+                del edges[node]
+                del reverse_edges[node]
+
         msg = "\n".join(
             f"{n} → {dep}" for n, deps in edges.items() if deps for dep in deps
         )

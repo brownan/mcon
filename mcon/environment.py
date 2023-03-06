@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Any, Dict, Iterator, MutableMapping, Optional
+from typing import Any, Dict, Iterator, MutableMapping, Optional, Type, Union
 
-from mcon.entry import Dir, File
+from mcon.entry import Dir, Entry, File
 from mcon.execution import Execution, get_current_execution
-from mcon.types import DirLike, FileLike, StrPath
+from mcon.types import DirLike, E, FileLike, SourceLike, StrPath
 
 
 class Environment(MutableMapping[str, Any]):
@@ -64,6 +64,25 @@ class Environment(MutableMapping[str, Any]):
     def __len__(self) -> int:
         return len(self._env_vars.keys() | self.execution.keys())
 
+    def _make_entry_common(
+        self,
+        source: Union[Entry, StrPath, SourceLike],
+        entry_type: Type[E],
+        entry_name: str,
+    ) -> E:
+        if hasattr(source, "target"):
+            if not isinstance(source.target, entry_type):
+                raise TypeError(
+                    f"SourceLike object {source} has wrong target type "
+                    f"{type(source.target)}. Expected {entry_name}"
+                )
+            return source.target
+        if isinstance(source, entry_type):
+            return source
+        if not isinstance(source, (str, Path)):
+            raise TypeError(f"Unknown {entry_name} type {type(source)}")
+        return entry_type(self, source)
+
     def file(
         self,
         source: FileLike,
@@ -73,11 +92,7 @@ class Environment(MutableMapping[str, Any]):
         If a builder needs to resolve a file and also register it as a dependency, use
         Builder.depends_file() instead.
         """
-        if hasattr(source, "target"):
-            source = source.target
-        if isinstance(source, File):
-            return source
-        return File(self, source)
+        return self._make_entry_common(source, File, "file")
 
     def dir(
         self,
@@ -89,11 +104,7 @@ class Environment(MutableMapping[str, Any]):
         use Builder.depends_files()
 
         """
-        if hasattr(source, "target"):
-            source = source.target
-        if isinstance(source, Dir):
-            return source
-        return Dir(self, source)
+        return self._make_entry_common(source, Dir, "dir")
 
     def get_rel_path(self, src: StrPath) -> str:
         """Returns the path to the given source file relative to either the environment's
