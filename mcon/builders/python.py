@@ -324,7 +324,7 @@ class Distribution:
 
         file = Command(
             self.env,
-            wheel.wheel_build_dir / pthname,
+            self.env.file(wheel.wheel_build_dir / pthname),
             None,
             lambda f: f.path.write_text(pthfile),
         )
