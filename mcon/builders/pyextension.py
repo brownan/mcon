@@ -15,7 +15,14 @@ from mcon.builders.c import CompiledObject, CompilerConfig, SharedLibrary
 @lru_cache
 def get_compiler_params() -> Tuple[CompilerConfig, str]:
     # Get compiler and compiler options we need to build a python extension module
-    (cc, cxx, cflags, ccshared, ldshared, ext_suffix,) = sysconfig.get_config_vars(
+    (
+        cc,
+        cxx,
+        cflags,
+        ccshared,
+        ldshared,
+        ext_suffix,
+    ) = sysconfig.get_config_vars(
         "CC",
         "CXX",
         "CFLAGS",
@@ -78,13 +85,13 @@ class ExtensionModule:
         if extra_sources:
             sources.extend(env.file(s) for s in extra_sources)
 
-        objects = [
+        self.objects = [
             CompiledObject(env, s.derive(build_dir, ".o"), s, conf) for s in sources
         ]
         self.target = SharedLibrary(
             env,
             module.derive(lib_dir, ext_suffix),
-            objects,
+            self.objects,
             conf,
         )
 
@@ -112,3 +119,7 @@ class CythonModule:
             env,
             c_file,
         )
+
+        # Export a few other instance vars if callers want to build these items separately
+        self.c_file = c_file
+        self.objects = self.target.objects
