@@ -353,7 +353,8 @@ class Wheel:
         version = pyproject.version
 
         dist_filename = pyproject.dist_filename
-        data_dir_name = f"{dist_filename}-{version}.dist-info"
+        data_dir_name = f"{dist_filename}-{version}.data"
+        dist_info_name = f"{dist_filename}-{version}.dist-info"
 
         wheel_name = "{}-{}-{}.whl".format(
             dist_filename,
@@ -362,7 +363,8 @@ class Wheel:
         )
 
         self.wheel_build_dir = self.env.build_root / build_dir_name
-        self.wheel_data_dir = self.wheel_build_dir.joinpath(data_dir_name)
+        self.dist_info_dir = self.wheel_build_dir / dist_info_name
+        self.data_dir = self.wheel_build_dir / data_dir_name
 
         self.wheel_fileset = FileSet(env)
         self.manifest_fileset = FileSet(env)
@@ -374,14 +376,14 @@ class Wheel:
         )
 
         metadata_dir = WheelMetadataBuilder(
-            env, self.wheel_data_dir, tag, pyproject, core_metadata
+            env, self.dist_info_dir, tag, pyproject, core_metadata
         )
         self.wheel_fileset.add(metadata_dir)
         self.manifest_fileset.add(metadata_dir)
 
         self.wheel_fileset.add(
             WheelManifestBuilder(
-                env, self.wheel_build_dir, self.wheel_data_dir, self.manifest_fileset
+                env, self.wheel_build_dir, self.dist_info_dir, self.manifest_fileset
             )
         )
 
@@ -408,11 +410,17 @@ class Wheel:
         category: str,
         *,
         relative_to: str = "",
+        prefix: StrPath = "",
     ) -> None:
         fileset = InstallFiles(
-            self.env, self.wheel_data_dir / category, sources, relative_to=relative_to
+            self.env,
+            self.data_dir / category,
+            sources,
+            relative_to=relative_to,
+            prefix=prefix,
         )
         self.wheel_fileset.add(fileset)
+        self.manifest_fileset.add(fileset)
 
 
 class SDist:
@@ -553,13 +561,13 @@ class WheelManifestBuilder(Builder):
         self,
         env: Environment,
         wheel_build_dir: Path,
-        wheel_data_dir: Path,
+        wheel_dist_info_dir: Path,
         wheel_fileset: FileSet,
     ):
         super().__init__(env)
         self.wheel_fileset = self.depends_files(wheel_fileset)
         self.wheel_build_dir = wheel_build_dir
-        self.target = self.register_target(self.env.file(wheel_data_dir / "RECORD"))
+        self.target = self.register_target(self.env.file(wheel_dist_info_dir / "RECORD"))
 
     def build(self) -> None:
         with self.target.path.open("w", newline="") as outfile:
