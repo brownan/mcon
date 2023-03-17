@@ -54,7 +54,10 @@ class EntryMeta(ABCMeta):
         try:
             entry = env.execution.entries[path]
             if not isinstance(entry, cls):
-                raise TypeError(f"Path {path} already exists but is the wrong type")
+                raise TypeError(
+                    f"Path {path} already exists but is the wrong type. Expected "
+                    f"{cls} got {type(entry)}"
+                )
             return entry
         except KeyError:
             pass
@@ -75,6 +78,7 @@ class Entry(Node, metaclass=EntryMeta):
         super().__init__(env)
         self.path: Path = env.root.joinpath(path)
         self.leave = leave
+        self.out_of_date: bool = False
 
     def __hash__(self) -> int:
         return hash(self.path)

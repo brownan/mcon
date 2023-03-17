@@ -251,7 +251,9 @@ class Execution(MutableMapping[str, Any]):
         outdated: Set[Entry] = set()
         changed: Set[Entry] = set()
         for node in all_nodes:
-            if isinstance(node, Entry) and node.builder is not None:
+            if isinstance(node, Entry) and node.out_of_date:
+                outdated.add(node)
+            elif isinstance(node, Entry) and node.builder is not None:
                 if not node.path.exists():
                     # If the node doesn't exist, then of course it needs building.
                     outdated.add(node)
