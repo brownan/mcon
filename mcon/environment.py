@@ -72,12 +72,7 @@ class Environment(MutableMapping[str, Any]):
         leave: bool = False,
     ) -> E:
         if hasattr(source, "target"):
-            if not isinstance(source.target, entry_type):
-                raise TypeError(
-                    f"SourceLike object {source} has wrong target type "
-                    f"{type(source.target)}. Expected {entry_name}"
-                )
-            return source.target
+            return self._make_entry_common(source.target, entry_type, entry_name, leave)
         if isinstance(source, entry_type):
             return source
         if not isinstance(source, (str, Path)):

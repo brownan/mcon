@@ -515,7 +515,7 @@ def _traverse_node_graph(
     and return all reachable nodes, as well as a mapping of dependency relations.
 
     """
-    reachable_entries: List["Node"] = []
+    reachable_nodes: List["Node"] = []
     edges: Dict["Node", List["Node"]] = defaultdict(list)
 
     seen: Set[Node] = set()
@@ -524,7 +524,7 @@ def _traverse_node_graph(
         visiting: Node = to_visit.pop()
         if visiting in seen:
             continue
-        reachable_entries.append(visiting)
+        reachable_nodes.append(visiting)
         seen.add(visiting)
 
         # A node depends on both its explicit dependencies and also its builder's dependencies
@@ -551,7 +551,7 @@ def _traverse_node_graph(
             edges[visiting].append(dep)
             if dep not in seen:
                 to_visit.append(dep)
-    return reachable_entries, edges
+    return reachable_nodes, edges
 
 
 def _sort_dag(

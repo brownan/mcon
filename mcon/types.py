@@ -60,4 +60,11 @@ class SourceLike(Protocol[SourceType]):
 
     """
 
+    # Note: the target of a SourceLike can also recursively be another SourceLike, but that's
+    # not representable by the type system. If someone knows how to represent that, let
+    # me know. Just changing this type to Union[SourceType, SourceLike[SourceType]] didn't
+    # work. I think mypy can't traverse a recursive protocol definition or something.
+    # If you run into typing issues related to your objects' .target attribute being set to a
+    # SourceLike, the workaround is to pass the SourceLike through env.file(), env.dir(),
+    # or FileSet before assigning it to the .target attribute.
     target: SourceType
