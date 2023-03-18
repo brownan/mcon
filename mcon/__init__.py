@@ -1,4 +1,4 @@
-from mcon.builder import Builder, SingleFileBuilder
+from mcon.builder import Builder, Command, SingleFileBuilder
 from mcon.entry import Dir, Entry, File, FileSet, Node
 from mcon.environment import Environment
 from mcon.execution import (

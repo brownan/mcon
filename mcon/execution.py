@@ -53,14 +53,16 @@ class PreparedBuild:
         be (re)built as a consequence of building the out-of-date entries.
 
         """
-        # Nodes that are outdated and need rebuilding also imply their descendent nodes should be
-        # rebuilt. While such nodes are usually also detected as outdated, they may
+        # Start with all nodes that are marked as out of date
+        to_build: Set[Node] = set(self.out_of_date)
+
+        # Nodes which are outdated and need rebuilding also imply their descendent nodes
+        # should be rebuilt. While such nodes are usually also detected as outdated, they may
         # not be in the case of an interrupted build where e.g. one dependent node
         # got built but not another. Since we don't assume a builder is purely functional,
         # if a builder runs, all descendent builders are also run.
         # Also since non-entry nodes are never detected directly as out-of-date, this is
         # where those nodes are set to build.
-        to_build: Set[Node] = set(self.out_of_date)
         for node in self.ordered_nodes:
             if any(d in to_build for d in self.edges[node]):
                 to_build.add(node)
