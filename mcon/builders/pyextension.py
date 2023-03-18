@@ -118,11 +118,13 @@ class ExtensionModule:
         self.objects = [
             CompiledObject(env, s.derive(build_dir, ".o"), s, conf) for s in sources
         ]
-        self.target = SharedLibrary(
-            env,
-            module.derive(lib_dir, ext_suffix),
-            self.objects,
-            conf,
+        self.target = env.file(
+            SharedLibrary(
+                env,
+                module.derive(lib_dir, ext_suffix),
+                self.objects,
+                conf,
+            )
         )
 
 
@@ -133,13 +135,14 @@ class CythonModule(Builder):
         self.c_file = self.register_target(self.source.derive("cython", ".c"))
         self.full_module_name = full_module_name
 
-        self.target = ExtensionModule(
+        ext_mod = ExtensionModule(
             env,
             self.c_file,
         )
+        self.target = env.file(ext_mod)
 
         # Export the object files as an attribute so that callers can target just those files
-        self.objects = self.target.objects
+        self.objects = ext_mod.objects
 
     def __str__(self) -> str:
         return f"Cythonizing {self.source} ({self.full_module_name})"
