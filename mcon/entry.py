@@ -58,6 +58,10 @@ class EntryMeta(ABCMeta):
                     f"Path {path} already exists but is the wrong type. Expected "
                     f"{cls} got {type(entry)}"
                 )
+            for key, value in kwargs.items():
+                if key not in entry.settable_attributes:
+                    raise ValueError(f"Cannot set property {key} on {cls}")
+                setattr(entry, key, value)
             return entry
         except KeyError:
             pass
@@ -73,6 +77,10 @@ class Entry(Node, metaclass=EntryMeta):
     The path may or may not exist until it is built. After its builder builds it,
     the path is expected to exist.
     """
+
+    settable_attributes: List[str] = [
+        "leave",
+    ]
 
     def __init__(self, env: "Environment", path: StrPath, *, leave: bool = False):
         super().__init__(env)
