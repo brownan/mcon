@@ -222,11 +222,15 @@ def _print_line(
 
     print("".join(parts))
     if omit_children:
+        if last_child:
+            new_depth_seq = depth_seq[:-1] + [False, True]
+        else:
+            new_depth_seq = depth_seq + [True]
         _print_line(
             False,
             False,
             False,
-            depth_seq + [depth_seq[-1]],
+            new_depth_seq,
             True,
             "(child nodes shown above)",
             False,
