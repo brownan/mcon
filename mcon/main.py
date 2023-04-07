@@ -71,6 +71,7 @@ def main() -> None:
 
     construct_path = Path(args["construct"]).resolve()
     execution = Execution(construct_path.parent)
+    execution.update(os.environ)
     execute_construct(
         construct_path,
         execution,
