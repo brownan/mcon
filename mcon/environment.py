@@ -35,7 +35,7 @@ class Environment(MutableMapping[str, Any]):
         build_root: Optional[Path] = None,
         execution: Optional[Execution] = None,
     ):
-        if not execution:
+        if execution is None:
             execution = get_current_execution()
 
         self.execution: Execution = execution

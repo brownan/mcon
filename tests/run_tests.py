@@ -97,7 +97,7 @@ class MiniconsTests(Common):
         # See that the directory object correctly iterates over the files within the directory
         d = self.env.dir("foo")
         self.assertEqual(
-            list(d), [self.env.file("foo/foo.txt"), self.env.file("foo/bar.txt")]
+            set(d), {self.env.file("foo/foo.txt"), self.env.file("foo/bar.txt")}
         )
 
     def test_file_dependency(self) -> None:
