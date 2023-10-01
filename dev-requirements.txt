@@ -1,3 +1,5 @@
 mypy
 types-toml
 pre-commit
+sphinx
+furo

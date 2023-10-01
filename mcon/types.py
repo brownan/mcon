@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Iterable, Protocol, TypeVar, Union
 if TYPE_CHECKING:
     from os import PathLike
 
-    from mcon import Dir, Entry, File, FileSet, Node
+    from mcon.entry import Dir, Entry, File, FileSet, Node
 
 __all__ = [
     "TargetTypes",
