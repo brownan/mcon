@@ -8,7 +8,7 @@ backend-path = ["."]
 
 [project]
 name = "mcon"
-version = "0.0.7"
+version = "0.0.8"
 description = "Mini software construction and build framework"
 readme = "README.md"
 authors = [

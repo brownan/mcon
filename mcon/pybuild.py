@@ -29,7 +29,7 @@ def _exec_target(target: str, **kwargs: Any) -> str:
         raise RuntimeError("Target 'wheel' had more than one target")
     node = targets[0]
     assert isinstance(node, File)
-    return str(node.path)
+    return node.path.name
 
 
 def build_wheel(
